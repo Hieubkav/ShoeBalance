@@ -1,0 +1,6 @@
+Báo cáo tồn kho
+Chi nhánh | Toàn chi nhánh | Trạng thái phiên bản |  | Loại sản phẩm |  | 
+STT | Mã SKU | Phiên bản sản phẩm | Đơn vị tính | Tồn kho | Định mức tối thiểu | Cần nhập thêm | Hàng đang về
+1 | TEST001-40 | Giày Test 1 - 40 |  | 1 | 2 | 1 | 0
+2 | TEST001-41 | Giày Test 1 - 41 |  | 0 | 3 | 3 | 1
+3 | TEST002-38 | Giày Test 2 - 38 |  | 0 | 1 | 1 | 0

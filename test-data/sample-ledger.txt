@@ -1,0 +1,6 @@
+Sổ kho
+Từ ngày | 01/09/2025 | Đến ngày | 05/10/2025 | Chi nhánh | Toàn chi nhánh | Nguồn | Tất cả | sản phẩm |  | Trạng thái phiên bản sản phẩm | Đang giao dịch, ngừng giao dịch | Loại sản phẩm |  | Nhãn hiệu |  | 
+STT | Ngày chứng từ | Nguồn | Mã chứng từ | Tên phiên bản - Sản phẩm | Đơn vị tính | Loại sản phẩm | SKU | Barcode | Số lượng nhập kho | Giá trị nhập kho | Số lượng xuất kho | Giá trị xuất kho | Số lượng tồn | Giá trị tồn | Kho hàng
+1 | 05/10/2025 12:15:35 | Xuất kho giao hàng cho khách/shipper | 2510058VTUSY15 | Giày Test 1 - 40 |  | Test | TEST001-40 | TEST001-40 | 0 | 0 | 5 | 2050000 | 1 | 410000 | Kho giày
+2 | 05/10/2025 10:42:28 | Xuất kho giao hàng cho khách/shipper | 2510034SSYCBPK | Giày Test 1 - 41 |  | Test | TEST001-41 | TEST001-41 | 0 | 0 | 8 | 3280000 | 0 | 0 | Kho giày
+3 | 04/10/2025 16:23:24 | Xuất kho giao hàng cho khách/shipper | 2510047HU84SQJ | Giày Test 2 - 38 |  | Test | TEST002-38 | TEST002-38 | 0 | 0 | 3 | 1110000 | 0 | 0 | Kho giày
