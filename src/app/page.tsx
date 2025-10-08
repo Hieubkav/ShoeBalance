@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Upload, FileSpreadsheet, Download, Calculator } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface Product {
   sku: string
@@ -47,6 +48,7 @@ interface ImportCalculation {
   needImport: number
   image: string
   importPrice: number
+  explanation: string
 }
 
 export default function Home() {
@@ -55,7 +57,7 @@ export default function Home() {
   const [stockLedgers, setStockLedgers] = useState<StockLedger[]>([])
   const [calculations, setCalculations] = useState<ImportCalculation[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
-  const stickyHeaderClass = 'sticky top-0 z-20 bg-background shadow-sm border-b'
+  const stickyHeaderClass = 'sticky top-0 z-40 bg-background shadow-sm border-b'
 
   const parseCSVData = (csvText: string, fileType: string) => {
     const lines = csvText.split('\n').filter(line => line.trim())
@@ -265,10 +267,15 @@ export default function Home() {
       const sellRate = totalExport / 30
       let needImport = 0
       let newMinStock = product.minStock
+      let explanation = ''
 
       // Điều kiện 2.2 - Size nữ (36-39)
       if (size >= 36 && size <= 39) {
         needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
+        explanation = [
+          'Size nu (36-39): ap dung ton kho toi thieu san co.',
+          `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
+        ].join('\n')
       }
       // Điều kiện 2.3 - Size nam (40-45)
       else if (size >= 40 && size <= 45) {
@@ -279,6 +286,11 @@ export default function Home() {
           }
           newMinStock = sizeMinStocks[product.size] || product.minStock
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
+          explanation = [
+            'Size nam - truong hop 1: ti suat ban < 0.4 va ton hien tai < 10.',
+            `Ton kho toi thieu moi size ${product.size} = ${newMinStock}.`,
+            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
+          ].join('\n')
         } else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
           // Trường hợp 2
           const totalIdealStock = 24 + 10 * sellRate // 12 + 12 + 10 * ti suat ban hang
@@ -292,6 +304,12 @@ export default function Home() {
           }
 
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
+          explanation = [
+            'Size nam - truong hop 2: ti suat ban >= 0.4 va ton hien tai < 12 + 10 * ti suat.',
+            `Ti suat ban = ${sellRate.toFixed(2)} => ton kho ly tuong = 24 + 10 * ${sellRate.toFixed(2)} = ${totalIdealStock.toFixed(2)}.`,
+            `Size ${product.size} duoc phan bo ${newMinStock} doi.`,
+            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
+          ].join('\n')
         }
       }
 
@@ -307,7 +325,8 @@ export default function Home() {
           sellRate,
           needImport,
           image: product.image,
-          importPrice: product.importPrice
+          importPrice: product.importPrice,
+          explanation: explanation || `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
         })
       }
     })
@@ -554,8 +573,11 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="overflow-x-auto">
                   <div className="relative max-h-[65vh] overflow-y-auto">
-                    <Table className="w-full min-w-[1200px]">
-                      <TableHeader>
+                    <Table className="import-results-table w-full min-w-[1200px]">
+                      <TableHeader
+                        className="bg-background shadow-sm"
+                        style={{ position: 'sticky', top: 0, zIndex: 50 }}
+                      >
                         <TableRow>
                           <TableHead className={stickyHeaderClass}>Ảnh</TableHead>
                           <TableHead className={stickyHeaderClass}>Mã SKU</TableHead>
@@ -572,33 +594,41 @@ export default function Home() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {calculations.map((calc, index) => (
-                          <TableRow key={index}>
-                            <TableCell>
-                              {calc.image && (
-                                <img
-                                  src={calc.image}
-                                  alt={calc.sku}
-                                  className="w-12 h-12 object-cover rounded"
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell className="font-medium">{calc.sku}</TableCell>
-                            <TableCell>{calc.productCode}</TableCell>
-                            <TableCell>{calc.size}</TableCell>
-                            <TableCell>{calc.currentStock}</TableCell>
-                            <TableCell>{calc.incomingStock}</TableCell>
-                            <TableCell>{calc.minStock}</TableCell>
-                            <TableCell>{calc.exportQuantity}</TableCell>
-                            <TableCell>{calc.sellRate.toFixed(2)}</TableCell>
-                            <TableCell className="font-semibold text-blue-600">
-                              {calc.needImport}
-                            </TableCell>
-                            <TableCell>{calc.importPrice.toLocaleString()}đ</TableCell>
-                            <TableCell className="font-semibold text-green-600">
-                              {(calc.needImport * calc.importPrice).toLocaleString()}đ
-                            </TableCell>
-                          </TableRow>
+                        {calculations.map(calc => (
+                          <Tooltip key={calc.sku}>
+                            <TooltipTrigger asChild>
+                              <TableRow className="cursor-help transition-colors hover:bg-muted/60">
+                                <TableCell>
+                                  {calc.image && (
+                                    <img
+                                      src={calc.image}
+                                      alt={calc.sku}
+                                      className="w-12 h-12 object-cover rounded"
+                                    />
+                                  )}
+                                </TableCell>
+                                <TableCell className="font-medium">{calc.sku}</TableCell>
+                                <TableCell>{calc.productCode}</TableCell>
+                                <TableCell>{calc.size}</TableCell>
+                                <TableCell>{calc.currentStock}</TableCell>
+                                <TableCell>{calc.incomingStock}</TableCell>
+                                <TableCell>{calc.minStock}</TableCell>
+                                <TableCell>{calc.exportQuantity}</TableCell>
+                                <TableCell>{calc.sellRate.toFixed(2)}</TableCell>
+                                <TableCell className="font-semibold text-blue-600">
+                                  {calc.needImport}
+                                </TableCell>
+                                <TableCell>{calc.importPrice.toLocaleString()}đ</TableCell>
+                                <TableCell className="font-semibold text-green-600">
+                                  {(calc.needImport * calc.importPrice).toLocaleString()}đ
+                                </TableCell>
+                              </TableRow>
+                            </TooltipTrigger>
+                            <TooltipContent align="start" className="max-w-sm whitespace-pre-line text-left">
+                              <div className="font-semibold text-sm mb-1">{calc.sku}</div>
+                              <div className="text-xs leading-relaxed">{calc.explanation}</div>
+                            </TooltipContent>
+                          </Tooltip>
                         ))}
                       </TableBody>
                     </Table>
