@@ -55,6 +55,7 @@ export default function Home() {
   const [stockLedgers, setStockLedgers] = useState<StockLedger[]>([])
   const [calculations, setCalculations] = useState<ImportCalculation[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const stickyHeaderClass = 'sticky top-0 z-20 bg-background shadow-sm border-b'
 
   const parseCSVData = (csvText: string, fileType: string) => {
     const lines = csvText.split('\n').filter(line => line.trim())
@@ -548,91 +549,100 @@ export default function Home() {
               }
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0 pb-6">
             {calculations.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Ảnh</TableHead>
-                      <TableHead>Mã SKU</TableHead>
-                      <TableHead>Mã sản phẩm</TableHead>
-                      <TableHead>Size</TableHead>
-                      <TableHead>Tồn hiện tại</TableHead>
-                      <TableHead>Hàng đang về</TableHead>
-                      <TableHead>Tồn kho tối thiểu</TableHead>
-                      <TableHead>Số lượng xuất kho</TableHead>
-                      <TableHead>Tỉ suất bán</TableHead>
-                      <TableHead>Cần nhập</TableHead>
-                      <TableHead>Giá nhập</TableHead>
-                      <TableHead>Thành tiền</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {calculations.map((calc, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          {calc.image && (
-                            <img 
-                              src={calc.image} 
-                              alt={calc.sku}
-                              className="w-12 h-12 object-cover rounded"
-                            />
-                          )}
-                        </TableCell>
-                        <TableCell className="font-medium">{calc.sku}</TableCell>
-                        <TableCell>{calc.productCode}</TableCell>
-                        <TableCell>{calc.size}</TableCell>
-                        <TableCell>{calc.currentStock}</TableCell>
-                        <TableCell>{calc.incomingStock}</TableCell>
-                        <TableCell>{calc.minStock}</TableCell>
-                        <TableCell>{calc.exportQuantity}</TableCell>
-                        <TableCell>{calc.sellRate.toFixed(2)}</TableCell>
-                        <TableCell className="font-semibold text-blue-600">
-                          {calc.needImport}
-                        </TableCell>
-                        <TableCell>{calc.importPrice.toLocaleString()}đ</TableCell>
-                        <TableCell className="font-semibold text-green-600">
-                          {(calc.needImport * calc.importPrice).toLocaleString()}đ
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                
-                {/* Tổng kết */}
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <span className="font-medium">Tổng số sản phẩm:</span>
-                      <div className="text-lg font-bold">{calculations.length}</div>
-                    </div>
-                    <div>
-                      <span className="font-medium">Tổng số lượng cần nhập:</span>
-                      <div className="text-lg font-bold text-blue-600">
-                        {calculations.reduce((sum, calc) => sum + calc.needImport, 0)}
+              <div className="space-y-4">
+                <div className="overflow-x-auto">
+                  <div className="relative max-h-[65vh] overflow-y-auto">
+                    <Table className="w-full min-w-[1200px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className={stickyHeaderClass}>Ảnh</TableHead>
+                          <TableHead className={stickyHeaderClass}>Mã SKU</TableHead>
+                          <TableHead className={stickyHeaderClass}>Mã sản phẩm</TableHead>
+                          <TableHead className={stickyHeaderClass}>Size</TableHead>
+                          <TableHead className={stickyHeaderClass}>Tồn hiện tại</TableHead>
+                          <TableHead className={stickyHeaderClass}>Hàng đang về</TableHead>
+                          <TableHead className={stickyHeaderClass}>Tồn kho tối thiểu</TableHead>
+                          <TableHead className={stickyHeaderClass}>Số lượng xuất kho</TableHead>
+                          <TableHead className={stickyHeaderClass}>Tỉ suất bán</TableHead>
+                          <TableHead className={stickyHeaderClass}>Cần nhập</TableHead>
+                          <TableHead className={stickyHeaderClass}>Giá nhập</TableHead>
+                          <TableHead className={stickyHeaderClass}>Thành tiền</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {calculations.map((calc, index) => (
+                          <TableRow key={index}>
+                            <TableCell>
+                              {calc.image && (
+                                <img
+                                  src={calc.image}
+                                  alt={calc.sku}
+                                  className="w-12 h-12 object-cover rounded"
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium">{calc.sku}</TableCell>
+                            <TableCell>{calc.productCode}</TableCell>
+                            <TableCell>{calc.size}</TableCell>
+                            <TableCell>{calc.currentStock}</TableCell>
+                            <TableCell>{calc.incomingStock}</TableCell>
+                            <TableCell>{calc.minStock}</TableCell>
+                            <TableCell>{calc.exportQuantity}</TableCell>
+                            <TableCell>{calc.sellRate.toFixed(2)}</TableCell>
+                            <TableCell className="font-semibold text-blue-600">
+                              {calc.needImport}
+                            </TableCell>
+                            <TableCell>{calc.importPrice.toLocaleString()}đ</TableCell>
+                            <TableCell className="font-semibold text-green-600">
+                              {(calc.needImport * calc.importPrice).toLocaleString()}đ
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                <div className="px-4 sm:px-6">
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="font-medium">Tổng số sản phẩm:</span>
+                        <div className="text-lg font-bold">{calculations.length}</div>
                       </div>
-                    </div>
-                    <div>
-                      <span className="font-medium">Tổng giá trị:</span>
-                      <div className="text-lg font-bold text-green-600">
-                        {calculations.reduce((sum, calc) => sum + (calc.needImport * calc.importPrice), 0).toLocaleString()}đ
+                      <div>
+                        <span className="font-medium">Tổng số lượng cần nhập:</span>
+                        <div className="text-lg font-bold text-blue-600">
+                          {calculations.reduce((sum, calc) => sum + calc.needImport, 0)}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <span className="font-medium">Số mã sản phẩm:</span>
-                      <div className="text-lg font-bold">
-                        {new Set(calculations.map(calc => calc.productCode)).size}
+                      <div>
+                        <span className="font-medium">Tổng giá trị:</span>
+                        <div className="text-lg font-bold text-green-600">
+                          {calculations
+                            .reduce((sum, calc) => sum + calc.needImport * calc.importPrice, 0)
+                            .toLocaleString()}đ
+                        </div>
+                      </div>
+                      <div>
+                        <span className="font-medium">Số mã sản phẩm:</span>
+                        <div className="text-lg font-bold">
+                          {new Set(calculations.map(calc => calc.productCode)).size}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Chưa có dữ liệu để hiển thị</p>
-                <p className="text-sm">Vui lòng tải lên 3 file dữ liệu và nhấn nút tính toán</p>
+              <div className="px-6">
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileSpreadsheet className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Chưa có dữ liệu để hiển thị</p>
+                  <p className="text-sm">Vui lòng tải lên 3 file dữ liệu và nhấn nút tính toán</p>
+                </div>
               </div>
             )}
           </CardContent>
