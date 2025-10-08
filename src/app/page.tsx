@@ -280,15 +280,16 @@ export default function Home() {
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
         } else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
           // Trường hợp 2
-          const totalIdealStock = 12 + 10 * sellRate
+          const totalIdealStock = 24 + 10 * sellRate // 12 + 12 + 10 * ti suat ban hang
           const percentage = 0.2058
-          
+          const baseSizeStock = Math.round(totalIdealStock * percentage)
+
           if (product.size === '41' || product.size === '42' || product.size === '43') {
-            newMinStock = Math.round(totalIdealStock * percentage)
+            newMinStock = baseSizeStock
           } else if (product.size === '40' || product.size === '44' || product.size === '45') {
-            newMinStock = Math.round(totalIdealStock * percentage) - 2
+            newMinStock = Math.max(0, baseSizeStock - 2)
           }
-          
+
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
         }
       }
