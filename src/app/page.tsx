@@ -12,6 +12,7 @@ import { Upload, FileSpreadsheet, Download, Calculator } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { exportToSapo } from '@/lib/sapo-export'
+import { TrungQuocExport } from '@/components/trungquoc-export'
 
 interface Product {
   sku: string
@@ -915,6 +916,11 @@ export default function Home() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Phần 4: File Nhập Hàng Trung Quốc */}
+      <div>
+        <TrungQuocExport calculations={calculations} />
       </div>
     </div>
   )
