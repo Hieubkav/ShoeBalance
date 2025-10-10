@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Upload, FileSpreadsheet, Download, Calculator } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { exportToSapo } from '@/lib/sapo-export'
 
 interface Product {
   sku: string
@@ -19,6 +20,15 @@ interface Product {
   importPrice: number
   size: string
   productCode: string
+  barcode?: string
+  productName?: string
+  variantName?: string
+  variantId?: string
+  currency?: string
+  supplierCode?: string
+  supplierName?: string
+  warehouseCode?: string
+  warehouseName?: string
 }
 
 interface StockReport {
@@ -34,6 +44,7 @@ interface StockLedger {
   exportQuantity: number
   size: string
   productCode: string
+  warehouseName?: string
 }
 
 interface ImportCalculation {
@@ -51,123 +62,171 @@ interface ImportCalculation {
   explanation: string
 }
 
+interface ProductColumnMap {
+  skuIndex: number
+  barcodeIndex: number
+  imageIndex: number
+  minStockIndex: number
+  importPriceIndex: number
+  productNameIndex: number
+  variantNameIndex: number
+  variantIdIndex: number
+  supplierCodeIndex: number
+  supplierNameIndex: number
+  currencyIndex: number
+  warehouseNameIndex: number
+  warehouseCode: string
+}
+
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([])
   const [stockReports, setStockReports] = useState<StockReport[]>([])
   const [stockLedgers, setStockLedgers] = useState<StockLedger[]>([])
   const [calculations, setCalculations] = useState<ImportCalculation[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isExportingSapo, setIsExportingSapo] = useState(false)
   const stickyHeaderClass = 'sticky top-0 z-40 bg-background shadow-sm border-b'
 
-  const parseCSVData = (csvText: string, fileType: string) => {
-    const lines = csvText.split('\n').filter(line => line.trim())
-    const data = []
+  const normalizeText = (value: unknown) => {
+    if (value === undefined || value === null) return ''
+    return String(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+  }
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (fileType === 'products' && i >= 1) { // Bỏ qua header
-        const columns = line.split('|').map(col => col.trim())
-        if (columns.length >= 33) {
-          const sku = columns[14] || ''
-          const image = columns[25] || ''
-          const minStock = parseInt(columns[28]) || 0
-          const importPrice = parseFloat(columns[32].replace(',', '')) || 0
-          
-          if (sku && sku !== 'Mã SKU*') {
-            const size = sku.slice(-2)
-            const productCode = sku.slice(0, -3)
-            
-            data.push({
-              sku,
-              image,
-              minStock,
-              importPrice,
-              size,
-              productCode
-            })
-          }
-        }
-      } else if (fileType === 'stock' && i >= 5) { // Bỏ qua header
-        const columns = line.split('|').map(col => col.trim())
-        if (columns.length >= 8) {
-          const sku = columns[1] || ''
-          const currentStock = parseInt(columns[4]) || 0
-          const incomingStock = parseFloat(columns[7]) || 0
-          
-          if (sku && sku !== 'Mã SKU') {
-            const size = sku.slice(-2)
-            const productCode = sku.slice(0, -3)
-            
-            data.push({
-              sku,
-              currentStock,
-              incomingStock,
-              size,
-              productCode
-            })
-          }
-        }
-      } else if (fileType === 'ledger' && i >= 5) { // Bỏ qua header
-        const columns = line.split('|').map(col => col.trim())
-        if (columns.length >= 12) {
-          const sku = columns[7] || ''
-          const exportQuantity = parseInt(columns[11]) || 0
-          
-          if (sku && sku !== 'SKU') {
-            const size = sku.slice(-2)
-            const productCode = sku.slice(0, -3)
-            
-            data.push({
-              sku,
-              exportQuantity,
-              size,
-              productCode
-            })
-          }
+  const findColumnIndex = (headers: string[], keywords: string[]) => {
+    const normalizedHeaders = headers.map(header => normalizeText(header))
+
+    for (let i = 0; i < normalizedHeaders.length; i++) {
+      const header = normalizedHeaders[i]
+      if (!header) continue
+
+      for (const keyword of keywords) {
+        const normalizedKeyword = normalizeText(keyword)
+        if (!normalizedKeyword) continue
+        if (header === normalizedKeyword || header.includes(normalizedKeyword)) {
+          return i
         }
       }
     }
 
-    return data
+    return -1
   }
 
-  const parseExcelData = (workbook: XLSX.WorkBook, fileType: string) => {
-    const data = []
-    const sheetName = workbook.SheetNames[0] // Lấy sheet đầu tiên
-    const worksheet = workbook.Sheets[sheetName]
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-    
-    for (let i = 0; i < jsonData.length; i++) {
-      const row = jsonData[i] as any[]
-      
-      if (fileType === 'products' && i >= 1) { // Bắt đầu từ dòng 2 (index 1)
-        const sku = row[13] || '' // Cột N (index 13)
-        const image = row[17] || '' // Cột R (index 17)
-        const minStock = parseInt(row[28]) || 0 // Cột AC (index 28)
-        const importPrice = parseFloat(String(row[32]).replace(',', '')) || 0 // Cột AG (index 32)
-        
-        if (sku && sku !== 'Mã SKU*' && sku !== 'Mã SKU') {
-          const size = sku.slice(-2)
-          const productCode = sku.slice(0, -3)
-          
-          data.push({
-            sku,
-            image,
-            minStock,
-            importPrice,
-            size,
-            productCode
-          })
+  const getCellValue = (row: any[], index: number) => {
+    if (index < 0 || index >= row.length) return ''
+    const value = row[index]
+    if (value === undefined || value === null) return ''
+    return typeof value === 'number' ? String(value) : String(value).trim()
+  }
+
+  const extractWarehouseCode = (headerValue: string) => {
+    if (!headerValue) return ''
+    const segments = headerValue.split('_')
+    return segments.length > 1 ? segments[0] : ''
+  }
+
+  const headerMatches = (normalizedHeader: string, patterns: string[]) => {
+    if (!normalizedHeader) return false
+    return patterns.some(pattern => normalizedHeader.includes(normalizeText(pattern)))
+  }
+
+  const parseCSVData = (csvText: string, fileType: string) => {
+    const lines = csvText.split(/\r?\n/).filter(line => line.trim())
+    const data: any[] = []
+    const splitRow = (value: string) => value.split(/[\\|\\u2502]/).map(col => col.trim())
+
+    let productColumns: ProductColumnMap | null = null
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      if (fileType === 'products') {
+        const columns = splitRow(line)
+
+        if (i === 0) {
+          const skuIndex = findColumnIndex(columns, ['ma sku*', 'ma sku', 'sku'])
+          const barcodeIndex = findColumnIndex(columns, ['barcode', 'ma vach'])
+          const imageIndex = findColumnIndex(columns, ['anh dai dien', 'image'])
+          const minStockIndex = findColumnIndex(columns, ['ton toi thieu', 'ton kho toi thieu'])
+          const importPriceIndex = findColumnIndex(columns, ['gia nhap', 'gia nhap*'])
+          const productNameIndex = findColumnIndex(columns, ['ten san pham'])
+          const variantNameIndex = findColumnIndex(columns, ['ten phien ban'])
+          const variantIdIndex = findColumnIndex(columns, ['variant id', 'id bien the'])
+          const supplierCodeIndex = findColumnIndex(columns, ['ma nha cung cap'])
+          const supplierNameIndex = findColumnIndex(columns, ['ten nha cung cap', 'nha cung cap'])
+          const currencyIndex = findColumnIndex(columns, ['currency', 'don vi tien te'])
+          const warehouseNameIndex = findColumnIndex(columns, ['diem luu kho', 'kho hang'])
+
+          productColumns = {
+            skuIndex: skuIndex >= 0 ? skuIndex : 14,
+            barcodeIndex: barcodeIndex >= 0 ? barcodeIndex : -1,
+            imageIndex: imageIndex >= 0 ? imageIndex : 25,
+            minStockIndex: minStockIndex >= 0 ? minStockIndex : 28,
+            importPriceIndex: importPriceIndex >= 0 ? importPriceIndex : 32,
+            productNameIndex,
+            variantNameIndex,
+            variantIdIndex,
+            supplierCodeIndex,
+            supplierNameIndex,
+            currencyIndex,
+            warehouseNameIndex,
+            warehouseCode:
+              minStockIndex >= 0 ? extractWarehouseCode(columns[minStockIndex]) : ''
+          }
+          continue
         }
-      } else if (fileType === 'stock' && i >= 5) { // Bắt đầu từ dòng 6 (index 5)
-        const sku = row[1] || '' // Cột B (index 1)
-        const currentStock = parseInt(row[4]) || 0 // Cột E (index 4)
-        const incomingStock = parseFloat(row[7]) || 0 // Cột H (index 7)
-        
-        if (sku && sku !== 'Mã SKU') {
+
+        if (!productColumns || columns.length === 0) continue
+
+        const getValue = (index: number) =>
+          index >= 0 && index < columns.length ? columns[index] : ''
+
+        const rawSku = getValue(productColumns.skuIndex)
+        const sku = rawSku.trim()
+        if (!sku || sku === 'Ma SKU*' || sku === 'Ma SKU') continue
+
+        const minStockRaw = getValue(productColumns.minStockIndex)
+        const importPriceRaw = getValue(productColumns.importPriceIndex)
+
+        const minStock = parseInt(minStockRaw.replace(/\D/g, '')) || 0
+        const importPrice =
+          parseFloat(
+            importPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
+          ) || 0
+
+        const size = sku.slice(-2)
+        const productCode = sku.length > 3 ? sku.slice(0, -3) : sku
+
+        data.push({
+          sku,
+          image: getValue(productColumns.imageIndex),
+          minStock,
+          importPrice,
+          size,
+          productCode,
+          productName: getValue(productColumns.productNameIndex),
+          variantName: getValue(productColumns.variantNameIndex),
+          variantId: getValue(productColumns.variantIdIndex),
+          supplierCode: getValue(productColumns.supplierCodeIndex),
+          supplierName: getValue(productColumns.supplierNameIndex),
+          currency: getValue(productColumns.currencyIndex) || 'VND',
+          warehouseCode: productColumns.warehouseCode,
+          warehouseName: getValue(productColumns.warehouseNameIndex)
+        })
+      } else if (fileType === 'stock' && i >= 5) {
+        const columns = splitRow(line)
+        if (columns.length >= 8) {
+          const sku = columns[1] || ''
+          if (!sku || sku === 'Ma SKU') continue
+
+          const currentStock = parseInt(columns[4]) || 0
+          const incomingStock = parseFloat(columns[7].replace(',', '.')) || 0
           const size = sku.slice(-2)
           const productCode = sku.slice(0, -3)
-          
+
           data.push({
             sku,
             currentStock,
@@ -176,28 +235,168 @@ export default function Home() {
             productCode
           })
         }
-      } else if (fileType === 'ledger' && i >= 5) { // Bắt đầu từ dòng 6 (index 5)
-        const sku = row[7] || '' // Cột H (index 7)
-        const exportQuantity = parseInt(row[11]) || 0 // Cột L (index 11)
-        
-        if (sku && sku !== 'SKU') {
+      } else if (fileType === 'ledger' && i >= 5) {
+        const columns = splitRow(line)
+        if (columns.length >= 12) {
+          const sku = columns[7] || ''
+          if (!sku || sku === 'SKU') continue
+
+          const exportQuantity = parseInt(columns[11]) || 0
           const size = sku.slice(-2)
           const productCode = sku.slice(0, -3)
-          
+
           data.push({
             sku,
             exportQuantity,
             size,
-            productCode
+            productCode,
+            warehouseName: columns[14] || columns[15] || ''
           })
         }
       }
     }
-    
+
     return data
   }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, fileType: string) => {
+  const parseExcelData = (workbook: XLSX.WorkBook, fileType: string) => {
+    const data: any[] = []
+    const sheetName = workbook.SheetNames[0]
+    const worksheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+
+    if (!rows.length) {
+      return data
+    }
+
+    let productColumns: ProductColumnMap | null = null
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as any[]
+
+      if (fileType === 'products') {
+        if (i === 0) {
+          const headerColumns = row.map(cell =>
+            cell === undefined || cell === null ? '' : String(cell)
+          )
+          const skuIndex = findColumnIndex(headerColumns, ['ma sku*', 'ma sku', 'sku'])
+          const imageIndex = findColumnIndex(headerColumns, ['anh dai dien', 'image'])
+          const minStockIndex = findColumnIndex(headerColumns, ['ton toi thieu', 'ton kho toi thieu'])
+          const importPriceIndex = findColumnIndex(headerColumns, ['gia nhap', 'gia nhap*'])
+          const productNameIndex = findColumnIndex(headerColumns, ['ten san pham'])
+          const variantNameIndex = findColumnIndex(headerColumns, ['ten phien ban'])
+          const variantIdIndex = findColumnIndex(headerColumns, ['variant id', 'id bien the'])
+          const supplierCodeIndex = findColumnIndex(headerColumns, ['ma nha cung cap'])
+          const supplierNameIndex = findColumnIndex(headerColumns, ['ten nha cung cap', 'nha cung cap'])
+          const currencyIndex = findColumnIndex(headerColumns, ['currency', 'don vi tien te'])
+          const warehouseNameIndex = findColumnIndex(headerColumns, ['diem luu kho', 'kho hang'])
+
+          productColumns = {
+            skuIndex: skuIndex >= 0 ? skuIndex : 13,
+            imageIndex: imageIndex >= 0 ? imageIndex : 17,
+            minStockIndex: minStockIndex >= 0 ? minStockIndex : 28,
+            importPriceIndex: importPriceIndex >= 0 ? importPriceIndex : 32,
+            productNameIndex,
+            variantNameIndex,
+            variantIdIndex,
+            supplierCodeIndex,
+            supplierNameIndex,
+            currencyIndex,
+            warehouseNameIndex,
+            warehouseCode:
+              minStockIndex >= 0 && headerColumns[minStockIndex]
+                ? extractWarehouseCode(String(headerColumns[minStockIndex]))
+                : ''
+          }
+          continue
+        }
+
+        if (!productColumns) continue
+
+        const sku = getCellValue(row, productColumns.skuIndex)
+        if (!sku || sku === 'Ma SKU*' || sku === 'Ma SKU') continue
+
+        const minStockRaw = getCellValue(row, productColumns.minStockIndex)
+        const importPriceRaw = getCellValue(row, productColumns.importPriceIndex)
+
+        const minStock = parseInt(minStockRaw.replace(/\D/g, '')) || 0
+        const importPrice =
+          parseFloat(
+            importPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
+          ) || 0
+
+        const size = sku.slice(-2)
+        const productCode = sku.length > 3 ? sku.slice(0, -3) : sku
+
+        data.push({
+          sku,
+          image: getCellValue(row, productColumns.imageIndex),
+          minStock,
+          importPrice,
+          size,
+          productCode,
+          productName: getCellValue(row, productColumns.productNameIndex),
+          variantName: getCellValue(row, productColumns.variantNameIndex),
+          variantId: getCellValue(row, productColumns.variantIdIndex),
+          supplierCode: getCellValue(row, productColumns.supplierCodeIndex),
+          supplierName: getCellValue(row, productColumns.supplierNameIndex),
+          currency: getCellValue(row, productColumns.currencyIndex) || 'VND',
+          warehouseCode: productColumns.warehouseCode,
+          warehouseName: getCellValue(row, productColumns.warehouseNameIndex)
+        })
+      } else if (fileType === 'stock' && i >= 5) {
+        const sku = getCellValue(row, 1)
+        if (!sku || sku === 'Ma SKU') continue
+
+        const currentStock = parseInt(getCellValue(row, 4)) || 0
+        const incomingStock = parseFloat(getCellValue(row, 7).replace(',', '.')) || 0
+        const size = sku.slice(-2)
+        const productCode = sku.slice(0, -3)
+
+        data.push({
+          sku,
+          currentStock,
+          incomingStock,
+          size,
+          productCode
+        })
+      } else if (fileType === 'ledger' && i >= 5) {
+        const sku = getCellValue(row, 7)
+        if (!sku || sku === 'SKU') continue
+
+        const exportQuantity = parseInt(getCellValue(row, 11)) || 0
+        const size = sku.slice(-2)
+        const productCode = sku.slice(0, -3)
+
+        data.push({
+          sku,
+          exportQuantity,
+          size,
+          productCode,
+          warehouseName: getCellValue(row, 15) || getCellValue(row, 16)
+        })
+      }
+    }
+
+    return data
+  }
+
+  const formatSapoDate = () => {
+    const now = new Date()
+    const vnDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }))
+    const pad = (value: number) => value.toString().padStart(2, '0')
+
+    const year = vnDate.getFullYear()
+    const month = pad(vnDate.getMonth() + 1)
+    const day = pad(vnDate.getDate())
+    const hours = pad(vnDate.getHours())
+    const minutes = pad(vnDate.getMinutes())
+    const seconds = pad(vnDate.getSeconds())
+
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`
+  }
+
+  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>, fileType: string) => {
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -205,18 +404,16 @@ export default function Home() {
     reader.onload = (e) => {
       try {
         let data: any[] = []
-        
-        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-          // Xử lý file Excel
+
+        if (file.name.match(/\.(xlsx|xls)$/i)) {
           const arrayBuffer = e.target?.result as ArrayBuffer
           const workbook = XLSX.read(arrayBuffer, { type: 'array' })
           data = parseExcelData(workbook, fileType)
         } else {
-          // Xử lý file CSV/TXT
           const text = e.target?.result as string
           data = parseCSVData(text, fileType)
         }
-        
+
         if (fileType === 'products') {
           setProducts(data)
         } else if (fileType === 'stock') {
@@ -225,21 +422,21 @@ export default function Home() {
           setStockLedgers(data)
         }
       } catch (error) {
-        console.error('Lỗi khi đọc file:', error)
-        alert('Không thể đọc file. Vui lòng kiểm tra lại định dạng file.')
+        console.error('Loi khi doc file:', error)
+        alert('Khong the doc file. Vui long kiem tra lai dinh dang.')
       }
     }
 
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+    if (file.name.match(/\.(xlsx|xls)$/i)) {
       reader.readAsArrayBuffer(file)
     } else {
-      reader.readAsText(file)
+      reader.readAsText(file, 'utf-8')
     }
   }
 
   const calculateImportNeeds = () => {
     if (products.length === 0 || stockReports.length === 0 || stockLedgers.length === 0) {
-      alert('Vui lòng tải lên cả 3 file dữ liệu')
+      alert('Vui long tai len ca 3 file du lieu')
       return
     }
 
@@ -406,6 +603,37 @@ export default function Home() {
     URL.revokeObjectURL(url)
   }
 
+  const exportToSapoFile = async () => {
+    if (calculations.length === 0) {
+      alert('Không có dữ liệu để xuất')
+      return
+    }
+
+    try {
+      setIsExportingSapo(true)
+
+      // Chuẩn bị dữ liệu cho export SAPO
+      const sapoData = {
+        donNhap: {
+          maDonNhap: `NH_${new Date().toISOString().split('T')[0].replace(/-/g, '')}`,
+          theTags: 'nhap_hang',
+          maChinhSachGia: '',
+          ghiChu: `Nhập hàng ngày ${new Date().toLocaleDateString('vi-VN')}`,
+          thamChieuDonNhap: ''
+        },
+        sanPhams: calculations
+      };
+
+      await exportToSapo(sapoData);
+
+    } catch (error) {
+      console.error('Lỗi khi xuất file SAPO:', error)
+      alert('Không thể xuất file SAPO. Vui lòng thử lại.')
+    } finally {
+      setIsExportingSapo(false)
+    }
+  }
+
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="mb-8 text-center">
@@ -555,10 +783,20 @@ export default function Home() {
             <CardTitle className="flex items-center justify-between">
               <span>Bảng Kết Quả Nhập Hàng</span>
               {calculations.length > 0 && (
-                <Button onClick={exportToExcel} variant="outline">
-                  <Download className="h-4 w-4 mr-2" />
-                  Xuất Excel
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={exportToExcel} variant="outline">
+                    <Download className="h-4 w-4 mr-2" />
+                    Xuat Excel
+                  </Button>
+                  <Button
+                    onClick={exportToSapoFile}
+                    variant="default"
+                    disabled={isExportingSapo}
+                  >
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    {isExportingSapo ? 'Dang xuat...' : 'Xuat file SAPO'}
+                  </Button>
+                </div>
               )}
             </CardTitle>
             <CardDescription>
