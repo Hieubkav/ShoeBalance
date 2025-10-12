@@ -96,35 +96,48 @@ export const exportToTrungQuoc = async (
       border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
     };
 
+    const roundToTwoDecimals = (value: number): number =>
+      Math.round((value + Number.EPSILON) * 100) / 100;
+
+    const calculatePriceInCNY = (product: ImportCalculation, rate: number) => {
+      const costPriceVnd = product.costPriceVnd || 0;
+      const importPrice = product.importPrice || 0;
+      const convertVndToCny = (value: number) => roundToTwoDecimals(value / rate);
+
+      if (costPriceVnd > 0) {
+        return {
+          priceInCny: convertVndToCny(costPriceVnd),
+          priceInVnd: costPriceVnd
+        };
+      }
+
+      if (importPrice >= 1000) {
+        return {
+          priceInCny: convertVndToCny(importPrice),
+          priceInVnd: importPrice
+        };
+      }
+
+      if (importPrice > 0) {
+        const normalizedCny = roundToTwoDecimals(importPrice);
+        return {
+          priceInCny: normalizedCny,
+          priceInVnd: roundToTwoDecimals(normalizedCny * rate)
+        };
+      }
+
+      console.warn(`Product ${product.sku} is missing import price information.`);
+      return {
+        priceInCny: 0,
+        priceInVnd: 0
+      };
+    };
+
     // Process each product
     for (let i = 0; i < data.products.length; i++) {
       const product = data.products[i];
       
-      // Better price calculation logic
-      let priceInCNY;
-      const importPrice = product.importPrice || 0;
-      
-      // Debug log the import prices
-      console.log(`Product ${product.sku}: importPrice=${importPrice}, exchangeRate=${exchangeRate}`);
-      
-      if (importPrice <= 0) {
-        // If no import price, use a reasonable default based on common shoe prices
-        priceInCNY = 85 + Math.floor(Math.random() * 20); // 85-105 CNY (more realistic)
-        console.log(`Warning: Product ${product.sku} has no import price (${importPrice}), using default: ¥${priceInCNY}`);
-        console.log('This might indicate an issue with the CSV data parsing. Please check the "gia nhap" column in the products file.');
-      } else if (importPrice < 100) {
-        // If price seems to be in CNY already (typically 50-200 CNY)
-        priceInCNY = importPrice;
-        console.log(`Note: Product ${product.sku} price treated as CNY: ¥${priceInCNY}`);
-      } else if (importPrice < 1000) {
-        // Price between 100-1000, likely VND but very low - could be parsing error
-        priceInCNY = Math.round(importPrice / exchangeRate);
-        console.log(`Warning: Product ${product.sku} price seems low for VND (${importPrice}), treating as VND and converting: ¥${priceInCNY}`);
-      } else {
-        // Standard VND price, convert to CNY
-        priceInCNY = Math.round(importPrice / exchangeRate);
-        console.log(`Converted: Product ${product.sku} ${importPrice}VND -> ¥${priceInCNY}`);
-      }
+      const { priceInCny, priceInVnd } = calculatePriceInCNY(product, exchangeRate);
       
       // 1. Tạo dòng Tiêu Đề
       const headerRow = worksheet.getRow(currentRowIndex);
@@ -161,11 +174,11 @@ export const exportToTrungQuoc = async (
         sizes[44] === '*' ? '' : sizes[44],    // 44
         sizes[45] === '*' ? '' : sizes[45],    // 45
         totalPairs,          // Pairs
-        priceInCNY,          // Price
-        totalPairs * priceInCNY, // Total - kết quả thực tế
+        priceInCny,          // Price
+        roundToTwoDecimals(totalPairs * priceInCny), // Total CNY
         product.sku || '',   // SKU
         exchangeRate,        // Tỷ giá
-        (totalPairs * priceInCNY) * exchangeRate  // Tổng tiền VND - kết quả thực tế
+        Math.round(totalPairs * priceInVnd)  // Tổng tiền VND - kết quả thực tế
       ];
 
       // Apply alternating row styles

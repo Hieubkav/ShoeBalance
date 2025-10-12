@@ -46,6 +46,43 @@ export function TrungQuocExport({ calculations }: TrungQuocExportProps) {
   const [isExporting, setIsExporting] = useState(false)
   const [previewData, setPreviewData] = useState<TrungQuocProduct[]>([])
 
+  const roundToTwoDecimals = (value: number) =>
+    Math.round((value + Number.EPSILON) * 100) / 100
+
+  const determinePriceForTrungQuoc = (calc: ImportCalculation, rate: number) => {
+    const costPriceVnd = calc.costPriceVnd || 0
+    const importPrice = calc.importPrice || 0
+    const convertVndToCny = (value: number) => roundToTwoDecimals(value / rate)
+
+    if (costPriceVnd > 0) {
+      return {
+        priceInCny: convertVndToCny(costPriceVnd),
+        priceInVnd: costPriceVnd
+      }
+    }
+
+    if (importPrice >= 1000) {
+      return {
+        priceInCny: convertVndToCny(importPrice),
+        priceInVnd: importPrice
+      }
+    }
+
+    if (importPrice > 0) {
+      const normalizedCny = roundToTwoDecimals(importPrice)
+      return {
+        priceInCny: normalizedCny,
+        priceInVnd: roundToTwoDecimals(normalizedCny * rate)
+      }
+    }
+
+    console.warn(`Product ${calc.sku} is missing import price information.`)
+    return {
+      priceInCny: 0,
+      priceInVnd: 0
+    }
+  }
+
   // Process data for preview and export
   const processTrungQuocData = () => {
     const defaultRate = parseFloat(exchangeRate) || 3500
@@ -55,39 +92,15 @@ export function TrungQuocExport({ calculations }: TrungQuocExportProps) {
       const totalPairs = Object.values(sizes).reduce((sum: number, val: number | '*') => 
         val === '*' ? sum : sum + (val as number), 0)
       
-      // Better price calculation logic (same as export)
-      let priceInCNY;
-      const importPrice = calc.importPrice || 0;
-      
-      // Debug log the import prices
-      console.log(`Product ${calc.sku}: importPrice=${importPrice}, exchangeRate=${defaultRate}`);
-      
-      if (importPrice <= 0) {
-        priceInCNY = 85 + Math.floor(Math.random() * 20); // 85-105 CNY (more realistic)
-        console.log(`Warning: Product ${calc.sku} has no import price (${importPrice}), using default: ¥${priceInCNY}`);
-        console.log('This might indicate an issue with the CSV data parsing. Please check the "gia nhap" column in the products file.');
-      } else if (importPrice < 100) {
-        // If price seems to be in CNY already (typically 50-200 CNY)
-        priceInCNY = importPrice;
-        console.log(`Note: Product ${calc.sku} price treated as CNY: ¥${priceInCNY}`);
-      } else if (importPrice < 1000) {
-        // Price between 100-1000, likely VND but very low - could be parsing error
-        priceInCNY = Math.round(importPrice / defaultRate);
-        console.log(`Warning: Product ${calc.sku} price seems low for VND (${importPrice}), treating as VND and converting: ¥${priceInCNY}`);
-      } else {
-        // Standard VND price, convert to CNY
-        priceInCNY = Math.round(importPrice / defaultRate);
-        console.log(`Converted: Product ${calc.sku} ${importPrice}VND -> ¥${priceInCNY}`);
-      }
-      
-      const totalVND = totalPairs * (importPrice || priceInCNY * defaultRate);
-      const totalCNY = totalPairs * priceInCNY
+      const { priceInCny, priceInVnd } = determinePriceForTrungQuoc(calc, defaultRate)
+      const totalCNY = roundToTwoDecimals(totalPairs * priceInCny)
+      const totalVND = Math.round(totalPairs * priceInVnd)
 
       return {
         imageUrl: calc.image || '',
         sizes,
         totalPairs,
-        priceInCNY,
+        priceInCNY: priceInCny,
         totalCNY,
         sku: calc.sku,
         totalVND
