@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { FileSpreadsheet, Download, Calculator } from 'lucide-react'
-import { exportToTrungQuoc, type TrungQuocExportData } from '@/lib/trungquoc-export'
+import { exportToTrungQuoc, prepareTrungQuocRows, type TrungQuocExportData } from '@/lib/trungquoc-export'
 
 interface ImportCalculation {
   sku: string
@@ -29,7 +29,7 @@ interface ImportCalculation {
 
 interface TrungQuocProduct {
   imageUrl: string
-  sizes: { [key: string]: number | '*' }
+  sizes: Record<string, number>
   totalPairs: number
   priceInCNY: number
   totalCNY: number
@@ -46,118 +46,27 @@ export function TrungQuocExport({ calculations }: TrungQuocExportProps) {
   const [isExporting, setIsExporting] = useState(false)
   const [previewData, setPreviewData] = useState<TrungQuocProduct[]>([])
 
-  const roundToTwoDecimals = (value: number) =>
-    Math.round((value + Number.EPSILON) * 100) / 100
-
-  const determinePriceForTrungQuoc = (calc: ImportCalculation, rate: number) => {
-    const costPriceVnd = calc.costPriceVnd || 0
-    const importPrice = calc.importPrice || 0
-    const convertVndToCny = (value: number) => roundToTwoDecimals(value / rate)
-
-    if (costPriceVnd > 0) {
-      return {
-        priceInCny: convertVndToCny(costPriceVnd),
-        priceInVnd: costPriceVnd
-      }
-    }
-
-    if (importPrice >= 1000) {
-      return {
-        priceInCny: convertVndToCny(importPrice),
-        priceInVnd: importPrice
-      }
-    }
-
-    if (importPrice > 0) {
-      const normalizedCny = roundToTwoDecimals(importPrice)
-      return {
-        priceInCny: normalizedCny,
-        priceInVnd: roundToTwoDecimals(normalizedCny * rate)
-      }
-    }
-
-    console.warn(`Product ${calc.sku} is missing import price information.`)
-    return {
-      priceInCny: 0,
-      priceInVnd: 0
-    }
-  }
-
   // Process data for preview and export
   const processTrungQuocData = () => {
     const defaultRate = parseFloat(exchangeRate) || 3500
+    const sizeKeys = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45']
 
-    const processed = calculations.map(calc => {
-      const sizes = generateSizesFromData(calc)
-      const totalPairs = Object.values(sizes).reduce((sum: number, val: number | '*') => 
-        val === '*' ? sum : sum + (val as number), 0)
-      
-      const { priceInCny, priceInVnd } = determinePriceForTrungQuoc(calc, defaultRate)
-      const totalCNY = roundToTwoDecimals(totalPairs * priceInCny)
-      const totalVND = Math.round(totalPairs * priceInVnd)
-
-      return {
-        imageUrl: calc.image || '',
-        sizes,
-        totalPairs,
-        priceInCNY: priceInCny,
-        totalCNY,
-        sku: calc.sku,
-        totalVND
-      }
-    })
+    const groupedRows = prepareTrungQuocRows(calculations, defaultRate)
+    const processed = groupedRows.map(row => ({
+      imageUrl: row.imageUrl,
+      sizes: sizeKeys.reduce((acc, key) => {
+        acc[key] = row.sizes[key as keyof typeof row.sizes] || 0
+        return acc
+      }, {} as Record<string, number>),
+      totalPairs: row.totalPairs,
+      priceInCNY: row.priceInCny,
+      totalCNY: row.totalCny,
+      sku: row.productCode,
+      totalVND: row.totalVnd
+    }))
 
     setPreviewData(processed)
     return processed
-  }
-
-  // Generate sizes distribution logic (same as in the export function)
-  const generateSizesFromData = (calc: ImportCalculation) => {
-    const sizes: { [key: string]: number | '*' } = {}
-    const totalQuantity = calc.needImport
-    const baseSize = parseInt(calc.size) || 40
-    const sizeRange = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45]
-    
-    if (totalQuantity > 0) {
-      const distribution: { [key: number]: number } = {}
-      let remaining = totalQuantity
-      const priorities = [
-        baseSize,
-        baseSize - 1,
-        baseSize + 1,
-        baseSize - 2,
-        baseSize + 2
-      ]
-      
-      for (const size of priorities) {
-        if (remaining <= 0) break
-        if (sizeRange.includes(size)) {
-          const qty = Math.min(Math.ceil(remaining / 5), 3)
-          distribution[size] = qty
-          remaining -= qty
-        }
-      }
-      
-      if (remaining > 0) {
-        const availableSizes = sizeRange.filter(s => !distribution[s])
-        for (const size of availableSizes) {
-          if (remaining <= 0) break
-          const qty = Math.min(Math.ceil(remaining / availableSizes.length), 2)
-          distribution[size] = qty
-          remaining -= qty
-        }
-      }
-      
-      sizeRange.forEach(size => {
-        sizes[size] = distribution[size] || '*'
-      })
-    } else {
-      sizeRange.forEach(size => {
-        sizes[size] = '*'
-      })
-    }
-    
-    return sizes
   }
 
   const handlePreview = () => {
@@ -320,11 +229,14 @@ export function TrungQuocExport({ calculations }: TrungQuocExportProps) {
                               />
                             )}
                           </TableCell>
-                          {[36, 37, 38, 39, 40, 41, 42, 43, 44, 45].map(size => (
-                            <TableCell key={size} className="text-center">
-                              {product.sizes[size] === '*' ? '' : product.sizes[size]}
-                            </TableCell>
-                          ))}
+                          {[36, 37, 38, 39, 40, 41, 42, 43, 44, 45].map(size => {
+                            const value = product.sizes[String(size)] || 0
+                            return (
+                              <TableCell key={size} className="text-center">
+                                {value > 0 ? value : ''}
+                              </TableCell>
+                            )
+                          })}
                           <TableCell className="text-center font-bold">{product.totalPairs}</TableCell>
                           <TableCell className="text-right">¥{product.priceInCNY}</TableCell>
                           <TableCell className="text-right font-bold">

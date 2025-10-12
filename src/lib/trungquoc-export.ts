@@ -1,22 +1,10 @@
 import ExcelJS from 'exceljs';
 
-interface TrungQuocProduct {
-  imageUrl: string;
-  sizes: {
-    [key: string]: number | '*'; // size 36-45
-  };
-  totalPairs: number;
-  price: number;
-  sku: string;
-  exchangeRate: number;
-}
-
-interface TrungQuocExportData {
+export interface TrungQuocExportData {
   products: ImportCalculation[];
   exchangeRate?: number;
 }
 
-// ImportCalculation interface từ file khác
 interface ImportCalculation {
   sku: string;
   productCode: string;
@@ -33,6 +21,128 @@ interface ImportCalculation {
   explanation: string;
 }
 
+const SIZE_KEYS = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45'] as const;
+
+type SizeKey = typeof SIZE_KEYS[number];
+
+const roundToTwoDecimals = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+const determinePricing = (product: ImportCalculation, rate: number) => {
+  const importPrice = product.importPrice || 0;
+  const costPriceVnd = product.costPriceVnd || 0;
+
+  if (importPrice > 0 && importPrice < 1000) {
+    const priceInCny = roundToTwoDecimals(importPrice);
+    const priceInVnd = Math.round(priceInCny * rate);
+    return { priceInCny, priceInVnd };
+  }
+
+  if (importPrice >= 1000) {
+    const priceInVnd = Math.round(importPrice);
+    const priceInCny = Math.round(priceInVnd / rate);
+    return { priceInCny, priceInVnd };
+  }
+
+  if (costPriceVnd > 0) {
+    const priceInVnd = Math.round(costPriceVnd);
+    const priceInCny = Math.round(priceInVnd / rate);
+    return { priceInCny, priceInVnd };
+  }
+
+  return { priceInCny: 0, priceInVnd: 0 };
+};
+
+const determinePricingFromCalcs = (calcs: ImportCalculation[], rate: number) => {
+  for (const calc of calcs) {
+    const price = determinePricing(calc, rate);
+    if (price.priceInCny > 0 && price.priceInVnd > 0) {
+      return price;
+    }
+  }
+
+  if (calcs.length > 0) {
+    return determinePricing(calcs[0], rate);
+  }
+
+  return { priceInCny: 0, priceInVnd: 0 };
+};
+
+export interface TrungQuocPreparedRow {
+  productCode: string;
+  imageUrl: string;
+  sizes: Record<SizeKey, number>;
+  totalPairs: number;
+  priceInCny: number;
+  priceInVnd: number;
+  totalCny: number;
+  totalVnd: number;
+  exchangeRate: number;
+}
+
+export const prepareTrungQuocRows = (
+  products: ImportCalculation[],
+  exchangeRate: number
+): TrungQuocPreparedRow[] => {
+  const grouped = new Map<
+    string,
+    { calcs: ImportCalculation[]; imageUrl: string; order: number }
+  >();
+
+  products.forEach((product, index) => {
+    const key = product.productCode || product.sku || `PRODUCT_${index}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.calcs.push(product);
+      if (!existing.imageUrl && product.image) {
+        existing.imageUrl = product.image;
+      }
+    } else {
+      grouped.set(key, {
+        calcs: [product],
+        imageUrl: product.image || '',
+        order: index
+      });
+    }
+  });
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[1].order - b[1].order)
+    .map(([productCode, group]) => {
+      const sizes = SIZE_KEYS.reduce((acc, key) => {
+        acc[key] = 0;
+        return acc;
+      }, {} as Record<SizeKey, number>);
+
+      let totalPairs = 0;
+      group.calcs.forEach(calc => {
+        const parsedSize = String(parseInt(calc.size, 10));
+        const need = Math.max(0, Math.round(calc.needImport || 0));
+        if ((SIZE_KEYS as readonly string[]).includes(parsedSize)) {
+          const sizeKey = parsedSize as SizeKey;
+          sizes[sizeKey] = (sizes[sizeKey] || 0) + need;
+          totalPairs += need;
+        }
+      });
+
+      const pricing = determinePricingFromCalcs(group.calcs, exchangeRate);
+      const totalCny = roundToTwoDecimals(pricing.priceInCny * totalPairs);
+      const totalVnd = Math.round(pricing.priceInVnd * totalPairs);
+
+      return {
+        productCode,
+        imageUrl: group.imageUrl,
+        sizes,
+        totalPairs,
+        priceInCny: pricing.priceInCny,
+        priceInVnd: pricing.priceInVnd,
+        totalCny,
+        totalVnd,
+        exchangeRate
+      };
+    });
+};
+
 export const exportToTrungQuoc = async (
   data: TrungQuocExportData
 ): Promise<void> => {
@@ -41,16 +151,9 @@ export const exportToTrungQuoc = async (
     const worksheet = workbook.addWorksheet('Nhập Hàng Trung Quốc');
 
     const exchangeRate = data.exchangeRate || 3500;
+    const preparedRows = prepareTrungQuocRows(data.products, exchangeRate);
     let currentRowIndex = 1;
 
-    // Debug: log first few products to check importPrice
-    console.log('Debug - First 3 products importPrice:', data.products.slice(0, 3).map(p => ({
-      sku: p.sku,
-      importPrice: p.importPrice,
-      needImport: p.needImport
-    })));
-
-    // Thiết lập độ rộng cột
     worksheet.columns = [
       { width: 8 },  // Hình ảnh
       { width: 6 },  // 36
@@ -65,142 +168,109 @@ export const exportToTrungQuoc = async (
       { width: 6 },  // 45
       { width: 8 },  // Pairs
       { width: 10 }, // Price
-      { width: 15 }, // Total
-      { width: 20 }, // SKU
+      { width: 15 }, // Total CNY
+      { width: 20 }, // SKU/Product
       { width: 12 }, // Tỷ giá
       { width: 20 }  // Tổng tiền VND
     ];
 
-    // Define styles
     const headerStyle = {
       font: { bold: true, color: { argb: 'FFFFFF' } },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '366092' } }, // Blue background
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '366092' } },
       alignment: { horizontal: 'center', vertical: 'middle' },
-      border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      border: {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      }
     };
 
     const dataStyleEven = {
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F2F2F2' } }, // Light gray background
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F2F2F2' } },
       alignment: { horizontal: 'center', vertical: 'middle' },
-      border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      border: {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      }
     };
 
     const dataStyleOdd = {
       alignment: { horizontal: 'center', vertical: 'middle' },
-      border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      border: {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      }
     };
 
     const numberStyle = {
       numFmt: '#,##0',
       alignment: { horizontal: 'right', vertical: 'middle' },
-      border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } }
+      border: {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      }
     };
 
-    const roundToTwoDecimals = (value: number): number =>
-      Math.round((value + Number.EPSILON) * 100) / 100;
-
-    const calculatePriceInCNY = (product: ImportCalculation, rate: number) => {
-      const costPriceVnd = product.costPriceVnd || 0;
-      const importPrice = product.importPrice || 0;
-      const convertVndToCny = (value: number) => roundToTwoDecimals(value / rate);
-
-      if (costPriceVnd > 0) {
-        return {
-          priceInCny: convertVndToCny(costPriceVnd),
-          priceInVnd: costPriceVnd
-        };
-      }
-
-      if (importPrice >= 1000) {
-        return {
-          priceInCny: convertVndToCny(importPrice),
-          priceInVnd: importPrice
-        };
-      }
-
-      if (importPrice > 0) {
-        const normalizedCny = roundToTwoDecimals(importPrice);
-        return {
-          priceInCny: normalizedCny,
-          priceInVnd: roundToTwoDecimals(normalizedCny * rate)
-        };
-      }
-
-      console.warn(`Product ${product.sku} is missing import price information.`);
-      return {
-        priceInCny: 0,
-        priceInVnd: 0
-      };
-    };
-
-    // Process each product
-    for (let i = 0; i < data.products.length; i++) {
-      const product = data.products[i];
-      
-      const { priceInCny, priceInVnd } = calculatePriceInCNY(product, exchangeRate);
-      
-      // 1. Tạo dòng Tiêu Đề
+    preparedRows.forEach(row => {
       const headerRow = worksheet.getRow(currentRowIndex);
       headerRow.values = [
         'Hình ảnh', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45',
         'Pairs', 'Price', 'Total', 'SKU', 'Tỷ giá', 'Tổng tiền VND'
       ];
-
-      // Apply header style to each cell
-      headerRow.eachCell({ includeEmpty: false }, (cell) => {
+      headerRow.eachCell({ includeEmpty: false }, cell => {
         Object.assign(cell, headerStyle);
       });
-      
       currentRowIndex++;
 
-      // 2. Tạo dòng Dữ Liệu
       const dataRow = worksheet.getRow(currentRowIndex);
-      
-      // Generate sizes
-      const sizes = generateSizesFromData(product);
-      const totalPairs = Object.values(sizes).reduce((sum: number, val: number | '*') => 
-        val === '*' ? sum : sum + (val as number), 0);
-      
       dataRow.values = [
-        product.image || '', // Hình ảnh
-        sizes[36] === '*' ? '' : sizes[36],    // 36
-        sizes[37] === '*' ? '' : sizes[37],    // 37
-        sizes[38] === '*' ? '' : sizes[38],    // 38
-        sizes[39] === '*' ? '' : sizes[39],    // 39
-        sizes[40] === '*' ? '' : sizes[40],    // 40
-        sizes[41] === '*' ? '' : sizes[41],    // 41
-        sizes[42] === '*' ? '' : sizes[42],    // 42
-        sizes[43] === '*' ? '' : sizes[43],    // 43
-        sizes[44] === '*' ? '' : sizes[44],    // 44
-        sizes[45] === '*' ? '' : sizes[45],    // 45
-        totalPairs,          // Pairs
-        priceInCny,          // Price
-        roundToTwoDecimals(totalPairs * priceInCny), // Total CNY
-        product.sku || '',   // SKU
-        exchangeRate,        // Tỷ giá
-        Math.round(totalPairs * priceInVnd)  // Tổng tiền VND - kết quả thực tế
+        row.imageUrl || '',
+        row.sizes['36'] || '',
+        row.sizes['37'] || '',
+        row.sizes['38'] || '',
+        row.sizes['39'] || '',
+        row.sizes['40'] || '',
+        row.sizes['41'] || '',
+        row.sizes['42'] || '',
+        row.sizes['43'] || '',
+        row.sizes['44'] || '',
+        row.sizes['45'] || '',
+        row.totalPairs,
+        row.priceInCny,
+        row.totalCny,
+        row.productCode,
+        row.exchangeRate,
+        row.totalVnd
       ];
 
-      // Apply alternating row styles
+      const numericColumns = new Set([12, 13, 14, 16, 17]);
       const isEvenRow = currentRowIndex % 2 === 0;
       dataRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-        if (colNumber === 13 || colNumber === 16 || colNumber === 14 || colNumber === 17) { // Pairs, ExchangeRate, Total, Tổng tiền VND - number format
-          Object.assign(cell, isEvenRow ? { ...dataStyleEven, ...numberStyle } : { ...dataStyleOdd, ...numberStyle });
+        if (numericColumns.has(colNumber)) {
+          Object.assign(
+            cell,
+            isEvenRow ? { ...dataStyleEven, ...numberStyle } : { ...dataStyleOdd, ...numberStyle }
+          );
         } else {
           Object.assign(cell, isEvenRow ? dataStyleEven : dataStyleOdd);
         }
       });
-      
-      currentRowIndex++;
-    }
 
-    // Tạo buffer và export
+      currentRowIndex++;
+    });
+
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
 
-    // Tải file về
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -209,69 +279,8 @@ export const exportToTrungQuoc = async (
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
   } catch (error) {
     console.error('Lỗi khi xuất file Trung Quốc:', error);
     throw new Error('Không thể xuất file Trung Quốc. Vui lòng thử lại.');
   }
 };
-
-// Helper function để phân bổ số lượng theo size
-function generateSizesFromData(product: ImportCalculation): { [key: string]: number | '*' } {
-  const sizes: { [key: string]: number | '*' } = {};
-  const totalQuantity = product.needImport;
-  
-  // Lấy size từ product size field
-  const baseSize = parseInt(product.size) || 40;
-  
-  // Phân bổ số lượng theo logic thông minh
-  if (totalQuantity > 0) {
-    // Phân bổ ưu tiên around base size
-    const sizeRange = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-    const distribution: { [key: number]: number } = {};
-    
-    // Tạo phân phối gần với real case
-    let remaining = totalQuantity;
-    const priorities = [
-      baseSize,       // Size của sản phẩm
-      baseSize - 1,   // Size nhỏ hơn 1
-      baseSize + 1,   // Size lớn hơn 1
-      baseSize - 2,   // Size nhỏ hơn 2
-      baseSize + 2    // Size lớn hơn 2
-    ];
-    
-    // Gán theo ưu tiên
-    for (const size of priorities) {
-      if (remaining <= 0) break;
-      if (sizeRange.includes(size)) {
-        const qty = Math.min(Math.ceil(remaining / 5), 3); // Max 3 đôi per size
-        distribution[size] = qty;
-        remaining -= qty;
-      }
-    }
-    
-    // Phân bổ còn lại
-    if (remaining > 0) {
-      const availableSizes = sizeRange.filter(s => !distribution[s]);
-      for (const size of availableSizes) {
-        if (remaining <= 0) break;
-        const qty = Math.min(Math.ceil(remaining / availableSizes.length), 2);
-        distribution[size] = qty;
-        remaining -= qty;
-      }
-    }
-    
-    // Điền vào mảng sizes
-    sizeRange.forEach(size => {
-      sizes[size] = distribution[size] || '*';
-    });
-  } else {
-    // Nếu không có số lượng, điền * tất cả
-    const sizeRange = [36, 37, 38, 39, 40, 41, 42, 43, 44, 45];
-    sizeRange.forEach(size => {
-      sizes[size] = '*';
-    });
-  }
-  
-  return sizes;
-}
