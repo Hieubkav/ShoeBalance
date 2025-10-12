@@ -19,6 +19,7 @@ interface Product {
   image: string
   minStock: number
   importPrice: number
+  costPriceVnd: number
   size: string
   productCode: string
   barcode?: string
@@ -60,6 +61,7 @@ interface ImportCalculation {
   needImport: number
   image: string
   importPrice: number
+  costPriceVnd: number
   explanation: string
 }
 
@@ -69,6 +71,7 @@ interface ProductColumnMap {
   imageIndex: number
   minStockIndex: number
   importPriceIndex: number
+  costPriceIndex: number
   productNameIndex: number
   variantNameIndex: number
   variantIdIndex: number
@@ -153,6 +156,7 @@ export default function Home() {
           const imageIndex = findColumnIndex(columns, ['anh dai dien', 'image'])
           const minStockIndex = findColumnIndex(columns, ['ton toi thieu', 'ton kho toi thieu'])
           const importPriceIndex = findColumnIndex(columns, ['gia nhap', 'gia nhap*'])
+          const costPriceIndex = findColumnIndex(columns, ['gia von', 'gia von (vnd)', 'gia von vnd'])
           const productNameIndex = findColumnIndex(columns, ['ten san pham'])
           const variantNameIndex = findColumnIndex(columns, ['ten phien ban'])
           const variantIdIndex = findColumnIndex(columns, ['variant id', 'id bien the'])
@@ -167,6 +171,7 @@ export default function Home() {
             imageIndex: imageIndex >= 0 ? imageIndex : 25,
             minStockIndex: minStockIndex >= 0 ? minStockIndex : 28,
             importPriceIndex: importPriceIndex >= 0 ? importPriceIndex : 32,
+            costPriceIndex: costPriceIndex >= 0 ? costPriceIndex : -1,
             productNameIndex,
             variantNameIndex,
             variantIdIndex,
@@ -191,11 +196,18 @@ export default function Home() {
 
         const minStockRaw = getValue(productColumns.minStockIndex)
         const importPriceRaw = getValue(productColumns.importPriceIndex)
+        const costPriceRaw = productColumns.costPriceIndex >= 0
+          ? getValue(productColumns.costPriceIndex)
+          : ''
 
         const minStock = parseInt(minStockRaw.replace(/\D/g, '')) || 0
         const importPrice =
           parseFloat(
             importPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
+          ) || 0
+        const costPriceVnd =
+          parseFloat(
+            costPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
           ) || 0
 
         const size = sku.slice(-2)
@@ -206,6 +218,7 @@ export default function Home() {
           image: getValue(productColumns.imageIndex),
           minStock,
           importPrice,
+          costPriceVnd,
           size,
           productCode,
           productName: getValue(productColumns.productNameIndex),
@@ -281,9 +294,11 @@ export default function Home() {
             cell === undefined || cell === null ? '' : String(cell)
           )
           const skuIndex = findColumnIndex(headerColumns, ['ma sku*', 'ma sku', 'sku'])
+          const barcodeIndex = findColumnIndex(headerColumns, ['barcode', 'ma vach'])
           const imageIndex = findColumnIndex(headerColumns, ['anh dai dien', 'image'])
           const minStockIndex = findColumnIndex(headerColumns, ['ton toi thieu', 'ton kho toi thieu'])
           const importPriceIndex = findColumnIndex(headerColumns, ['gia nhap', 'gia nhap*'])
+          const costPriceIndex = findColumnIndex(headerColumns, ['gia von', 'gia von (vnd)', 'gia von vnd'])
           const productNameIndex = findColumnIndex(headerColumns, ['ten san pham'])
           const variantNameIndex = findColumnIndex(headerColumns, ['ten phien ban'])
           const variantIdIndex = findColumnIndex(headerColumns, ['variant id', 'id bien the'])
@@ -294,9 +309,11 @@ export default function Home() {
 
           productColumns = {
             skuIndex: skuIndex >= 0 ? skuIndex : 13,
+            barcodeIndex: barcodeIndex >= 0 ? barcodeIndex : -1,
             imageIndex: imageIndex >= 0 ? imageIndex : 17,
             minStockIndex: minStockIndex >= 0 ? minStockIndex : 28,
             importPriceIndex: importPriceIndex >= 0 ? importPriceIndex : 32,
+            costPriceIndex: costPriceIndex >= 0 ? costPriceIndex : -1,
             productNameIndex,
             variantNameIndex,
             variantIdIndex,
@@ -319,11 +336,19 @@ export default function Home() {
 
         const minStockRaw = getCellValue(row, productColumns.minStockIndex)
         const importPriceRaw = getCellValue(row, productColumns.importPriceIndex)
+        const costPriceRaw =
+          productColumns.costPriceIndex >= 0
+            ? getCellValue(row, productColumns.costPriceIndex)
+            : ''
 
         const minStock = parseInt(minStockRaw.replace(/\D/g, '')) || 0
         const importPrice =
           parseFloat(
             importPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
+          ) || 0
+        const costPriceVnd =
+          parseFloat(
+            costPriceRaw.replace(/\./g, '').replace(/,/g, '.').replace(/[^\d.]/g, '')
           ) || 0
 
         const size = sku.slice(-2)
@@ -334,6 +359,7 @@ export default function Home() {
           image: getCellValue(row, productColumns.imageIndex),
           minStock,
           importPrice,
+          costPriceVnd,
           size,
           productCode,
           productName: getCellValue(row, productColumns.productNameIndex),
@@ -524,6 +550,7 @@ export default function Home() {
           needImport,
           image: product.image,
           importPrice: product.importPrice,
+          costPriceVnd: product.costPriceVnd,
           explanation: explanation || `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
         })
       }

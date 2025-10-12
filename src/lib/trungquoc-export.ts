@@ -29,6 +29,7 @@ interface ImportCalculation {
   needImport: number;
   image: string;
   importPrice: number;
+  costPriceVnd: number;
   explanation: string;
 }
 

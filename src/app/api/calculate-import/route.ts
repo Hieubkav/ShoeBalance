@@ -5,6 +5,7 @@ interface Product {
   image: string
   minStock: number
   importPrice: number
+  costPriceVnd: number
   size: string
   productCode: string
 }
@@ -36,6 +37,7 @@ interface ImportCalculation {
   needImport: number
   image: string
   importPrice: number
+  costPriceVnd: number
 }
 
 export async function POST(request: NextRequest) {
@@ -113,7 +115,8 @@ export async function POST(request: NextRequest) {
           sellRate,
           needImport,
           image: product.image,
-          importPrice: product.importPrice
+          importPrice: product.importPrice,
+          costPriceVnd: product.costPriceVnd
         })
       }
     })
@@ -140,7 +143,10 @@ export async function POST(request: NextRequest) {
       summary: {
         totalProducts: finalResults.length,
         totalImportQuantity: finalResults.reduce((sum, item) => sum + item.needImport, 0),
-        totalValue: finalResults.reduce((sum, item) => sum + (item.needImport * item.importPrice), 0)
+        totalValue: finalResults.reduce(
+          (sum, item) => sum + item.needImport * (item.costPriceVnd || item.importPrice),
+          0
+        )
       }
     })
 
