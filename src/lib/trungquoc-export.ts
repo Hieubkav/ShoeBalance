@@ -106,7 +106,7 @@ export const prepareTrungQuocRows = (
     }
   });
 
-  return Array.from(grouped.entries())
+  const rows = Array.from(grouped.entries())
     .sort((a, b) => a[1].order - b[1].order)
     .map(([productCode, group]) => {
       const sizes = SIZE_KEYS.reduce((acc, key) => {
@@ -141,6 +141,12 @@ export const prepareTrungQuocRows = (
         exchangeRate
       };
     });
+
+  rows.sort((a, b) =>
+    a.productCode.localeCompare(b.productCode, 'vi', { sensitivity: 'base', numeric: true })
+  );
+
+  return rows;
 };
 
 export const exportToTrungQuoc = async (
