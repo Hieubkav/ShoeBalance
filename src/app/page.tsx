@@ -665,7 +665,7 @@ export default function Home() {
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold mb-2">Hệ Thống Tính Toán Nhập Hàng</h1>
+        <h1 className="text-3xl font-bold mb-2">Nhập Hàng Trung Quốc</h1>
         <p className="text-muted-foreground">
           Tự động tính toán số lượng cần nhập hàng dựa trên dữ liệu tồn kho, sổ kho và danh sách sản phẩm
         </p>
