@@ -503,9 +503,9 @@ export default function Home() {
       }
       // Điều kiện 2.3 - Size nam (40-45)
       else if (size >= 40 && size <= 45) {
-        // Trường hợp 1: Bán chậm (sellRate < 0.4)
-        // ĐÃ BỎ điều kiện currentStock < 10 để tránh lỗi size chính hết hàng
-        if (sellRate < 0.4) {
+        // Trường hợp 1: Bán chậm (sellRate < 0.4) VÀ tồn kho < 13
+        // Điều kiện currentStock < 13 để tránh nhập quá nhiều (giảm từ không giới hạn)
+        if (sellRate < 0.4 && stockReport.currentStock < 13) {
           // Mức tồn tối thiểu MỚI: ưu tiên size 41,42,43
           const sizeMinStocks: { [key: string]: number } = {
             '40': 3, '41': 5, '42': 5, '43': 5, '44': 3, '45': 2
@@ -586,13 +586,19 @@ export default function Home() {
       const totalNeedImport = group.reduce((sum, item) => sum + item.needImport, 0)
 
       // Xác định ngưỡng theo giới tính dựa vào size
-      // Nếu có bất kỳ size nào từ 36-39 => sản phẩm nữ => ngưỡng 8
-      // Nếu tất cả size từ 40-45 => sản phẩm nam => ngưỡng 12
+      // Unisex = có CẢ size nữ (36-39) VÀ size nam (40-45) => ngưỡng 12
+      // Nữ thuần = chỉ có size 36-39 => ngưỡng 8
+      // Nam thuần = chỉ có size 40-45 => ngưỡng 12
       const hasFemaleSize = group.some(item => {
         const size = parseInt(item.size)
         return size >= 36 && size <= 39
       })
-      const threshold = hasFemaleSize ? 8 : 12
+      const hasMaleSize = group.some(item => {
+        const size = parseInt(item.size)
+        return size >= 40 && size <= 45
+      })
+      const isUnisex = hasFemaleSize && hasMaleSize
+      const threshold = (isUnisex || !hasFemaleSize) ? 12 : 8
 
       if (totalNeedImport > threshold) {
         finalResults.push(...group)
