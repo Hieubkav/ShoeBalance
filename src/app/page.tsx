@@ -503,35 +503,52 @@ export default function Home() {
       }
       // Điều kiện 2.3 - Size nam (40-45)
       else if (size >= 40 && size <= 45) {
-        if (sellRate < 0.4 && stockReport.currentStock < 10) {
-          // Trường hợp 1
+        // Trường hợp 1: Bán chậm (sellRate < 0.4)
+        // ĐÃ BỎ điều kiện currentStock < 10 để tránh lỗi size chính hết hàng
+        if (sellRate < 0.4) {
+          // Mức tồn tối thiểu MỚI: ưu tiên size 41,42,43
           const sizeMinStocks: { [key: string]: number } = {
-            '40': 3, '41': 4, '42': 4, '43': 4, '44': 3, '45': 3
+            '40': 3, '41': 5, '42': 5, '43': 5, '44': 3, '45': 2
           }
           newMinStock = sizeMinStocks[product.size] || product.minStock
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
           explanation = [
-            'Size nam - truong hop 1: ti suat ban < 0.4 va ton hien tai < 10.',
+            'Size nam - truong hop 1: ti suat ban < 0.4 (ban cham).',
             `Ton kho toi thieu moi size ${product.size} = ${newMinStock}.`,
             `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
           ].join('\n')
-        } else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
-          // Trường hợp 2
-          const totalIdealStock = 24 + 10 * sellRate // 12 + 12 + 10 * ti suat ban hang
+        }
+        // Trường hợp 2: Bán nhanh (sellRate >= 0.4)
+        else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
+          const totalIdealStock = 24 + 10 * sellRate
           const percentage = 0.2058
-          const baseSizeStock = Math.round(totalIdealStock * percentage)
+          const MAX_EDGE_SIZE = 4 // Giới hạn tối đa cho size biên (40, 44, 45)
+
+          // Bước 1: Tính minStock theo công thức cũ
+          let baseStock = Math.round(totalIdealStock * percentage)
+          let edgeStock = Math.max(0, baseStock - 2)
+
+          // Bước 2: Áp dụng giới hạn tối đa cho size biên
+          let excess = 0
+          if (edgeStock > MAX_EDGE_SIZE) {
+            excess = edgeStock - MAX_EDGE_SIZE
+            edgeStock = MAX_EDGE_SIZE
+          }
+
+          // Bước 3: Phân phối phần thừa cho size chính (41, 42, 43)
+          const redistributed = excess // Mỗi size chính nhận thêm = excess
 
           if (product.size === '41' || product.size === '42' || product.size === '43') {
-            newMinStock = baseSizeStock
+            newMinStock = baseStock + redistributed
           } else if (product.size === '40' || product.size === '44' || product.size === '45') {
-            newMinStock = Math.max(0, baseSizeStock - 2)
+            newMinStock = edgeStock
           }
 
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
           explanation = [
-            'Size nam - truong hop 2: ti suat ban >= 0.4 va ton hien tai < 12 + 10 * ti suat.',
+            'Size nam - truong hop 2: ti suat ban >= 0.4 (ban nhanh).',
             `Ti suat ban = ${sellRate.toFixed(2)} => ton kho ly tuong = 24 + 10 * ${sellRate.toFixed(2)} = ${totalIdealStock.toFixed(2)}.`,
-            `Size ${product.size} duoc phan bo ${newMinStock} doi.`,
+            `Size ${product.size} duoc phan bo ${newMinStock} doi${excess > 0 ? ` (da ap dung gioi han toi da va phan phoi lai)` : ''}.`,
             `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
           ].join('\n')
         }
@@ -556,7 +573,7 @@ export default function Home() {
       }
     })
 
-    // Gộp kết quả theo mã sản phẩm và kiểm tra điều kiện > 12
+    // Gộp kết quả theo mã sản phẩm và kiểm tra ngưỡng theo giới tính
     const productGroupMap = new Map<string, ImportCalculation[]>()
     results.forEach(result => {
       const group = productGroupMap.get(result.productCode) || []
@@ -567,7 +584,17 @@ export default function Home() {
     const finalResults: ImportCalculation[] = []
     productGroupMap.forEach((group, productCode) => {
       const totalNeedImport = group.reduce((sum, item) => sum + item.needImport, 0)
-      if (totalNeedImport > 12) { // Điều kiện 2.4
+
+      // Xác định ngưỡng theo giới tính dựa vào size
+      // Nếu có bất kỳ size nào từ 36-39 => sản phẩm nữ => ngưỡng 8
+      // Nếu tất cả size từ 40-45 => sản phẩm nam => ngưỡng 12
+      const hasFemaleSize = group.some(item => {
+        const size = parseInt(item.size)
+        return size >= 36 && size <= 39
+      })
+      const threshold = hasFemaleSize ? 8 : 12
+
+      if (totalNeedImport > threshold) {
         finalResults.push(...group)
       }
     })
