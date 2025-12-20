@@ -470,13 +470,24 @@ export default function Home() {
     setIsProcessing(true)
     const results: ImportCalculation[] = []
 
-    // Gộp dữ liệu từ stockLedgers theo SKU
+    // Gộp dữ liệu từ stockLedgers theo productCode (cho size nam)
     const ledgerMap = new Map<string, number>()
+    // Tạo thêm map theo SKU riêng lẻ (cho size nữ - Option A)
+    const skuLedgerMap = new Map<string, number>()
+    
     stockLedgers.forEach(ledger => {
+      // Map theo productCode (tổng xuất của cả mã sản phẩm)
       const key = ledger.productCode || (ledger.sku.length > 3 ? ledger.sku.slice(0, -3) : ledger.sku)
-      if (!key) return
-      const current = ledgerMap.get(key) || 0
-      ledgerMap.set(key, current + ledger.exportQuantity)
+      if (key) {
+        const current = ledgerMap.get(key) || 0
+        ledgerMap.set(key, current + ledger.exportQuantity)
+      }
+      
+      // Map theo SKU riêng lẻ (xuất của từng size)
+      if (ledger.sku) {
+        const skuCurrent = skuLedgerMap.get(ledger.sku) || 0
+        skuLedgerMap.set(ledger.sku, skuCurrent + ledger.exportQuantity)
+      }
     })
 
     products.forEach(product => {
@@ -493,11 +504,24 @@ export default function Home() {
       let newMinStock = product.minStock
       let explanation = ''
 
-      // Điều kiện 2.2 - Size nữ (36-39)
+      // Điều kiện 2.2 - Size nữ (36-39) - Option A: Sales Velocity Based
       if (size >= 36 && size <= 39) {
+        // Lấy số lượng xuất kho của SKU cụ thể này (từng size riêng)
+        const skuExport = skuLedgerMap.get(product.sku) || 0
+        
+        // Dynamic minStock dựa trên sales velocity
+        // - Nếu không bán được đôi nào trong tháng → giữ 1 đôi mẫu
+        // - Nếu có bán → tồn kho tối thiểu = số lượng bán (tối đa 8)
+        if (skuExport === 0) {
+          newMinStock = 1  // Giữ hàng mẫu
+        } else {
+          newMinStock = Math.min(skuExport, 8)  // Tối đa 8 đôi
+        }
+        
         needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
         explanation = [
-          'Size nu (36-39): ap dung ton kho toi thieu san co.',
+          'Size nu (36-39): ap dung ton kho toi thieu DONG (Option A).',
+          `Xuat kho thang: ${skuExport} doi => Ton kho toi thieu = ${newMinStock} doi.`,
           `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
         ].join('\n')
       }
@@ -817,7 +841,7 @@ export default function Home() {
                   <strong>Điều kiện tính toán:</strong>
                   <ul className="list-disc list-inside mt-2 space-y-1">
                     <li>Tồn kho tối thiểu &gt; 0</li>
-                    <li>Size nữ (36-39): Cần nhập = Tồn kho tối thiểu - Tồn hiện tại - Hàng đang về</li>
+                    <li>Size nữ (36-39): Tồn kho TT động = MIN(số xuất kho tháng, 8) hoặc 1 nếu không bán</li>
                     <li>Size nam (40-45): Áp dụng công thức tỉ suất bán hàng và tồn kho điều kiện</li>
                     <li>Tổng số lượng cần nhập của 1 mã sản phẩm phải &gt; 12</li>
                   </ul>

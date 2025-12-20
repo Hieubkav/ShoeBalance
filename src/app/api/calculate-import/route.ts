@@ -53,13 +53,24 @@ export async function POST(request: NextRequest) {
 
     const results: ImportCalculation[] = []
 
-    // Gộp dữ liệu từ stockLedgers theo SKU
+    // Gộp dữ liệu từ stockLedgers theo productCode (cho size nam)
     const ledgerMap = new Map<string, number>()
+    // Tạo thêm map theo SKU riêng lẻ (cho size nữ - Option A)
+    const skuLedgerMap = new Map<string, number>()
+    
     stockLedgers.forEach((ledger: StockLedger) => {
+      // Map theo productCode (tổng xuất của cả mã sản phẩm)
       const key = ledger.productCode || (ledger.sku.length > 3 ? ledger.sku.slice(0, -3) : ledger.sku)
-      if (!key) return
-      const current = ledgerMap.get(key) || 0
-      ledgerMap.set(key, current + ledger.exportQuantity)
+      if (key) {
+        const current = ledgerMap.get(key) || 0
+        ledgerMap.set(key, current + ledger.exportQuantity)
+      }
+      
+      // Map theo SKU riêng lẻ (xuất của từng size)
+      if (ledger.sku) {
+        const skuCurrent = skuLedgerMap.get(ledger.sku) || 0
+        skuLedgerMap.set(ledger.sku, skuCurrent + ledger.exportQuantity)
+      }
     })
 
     products.forEach((product: Product) => {
@@ -75,8 +86,20 @@ export async function POST(request: NextRequest) {
       let needImport = 0
       let newMinStock = product.minStock
 
-      // Điều kiện 2.2 - Size nữ (36-39)
+      // Điều kiện 2.2 - Size nữ (36-39) - Option A: Sales Velocity Based
       if (size >= 36 && size <= 39) {
+        // Lấy số lượng xuất kho của SKU cụ thể này (từng size riêng)
+        const skuExport = skuLedgerMap.get(product.sku) || 0
+        
+        // Dynamic minStock dựa trên sales velocity
+        // - Nếu không bán được đôi nào trong tháng → giữ 1 đôi mẫu
+        // - Nếu có bán → tồn kho tối thiểu = số lượng bán (tối đa 8)
+        if (skuExport === 0) {
+          newMinStock = 1  // Giữ hàng mẫu
+        } else {
+          newMinStock = Math.min(skuExport, 8)  // Tối đa 8 đôi
+        }
+        
         needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
       }
       // Điều kiện 2.3 - Size nam (40-45)
