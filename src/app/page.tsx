@@ -230,14 +230,18 @@ export default function Home() {
           warehouseCode: productColumns.warehouseCode,
           warehouseName: getValue(productColumns.warehouseNameIndex)
         })
-      } else if (fileType === 'stock' && i >= 5) {
+      } else if (fileType === 'stock' && i >= 8) {
+        // Sheet mới "Báo cáo tồn kho chi tiết"
         const columns = splitRow(line)
-        if (columns.length >= 8) {
-          const sku = columns[1] || ''
-          if (!sku || sku === 'Ma SKU') continue
+        if (columns.length >= 12) {
+          const stt = columns[1] || '' // Column B - STT
+          if (stt === 'Tổng' || stt === 'Tong' || !stt) continue
+          
+          const sku = columns[4] || '' // Column E - SKU
+          if (!sku) continue
 
-          const currentStock = parseInt(columns[4]) || 0
-          const incomingStock = parseFloat(columns[7].replace(',', '.')) || 0
+          const currentStock = parseInt(columns[8]) || 0   // Column I - Tồn kho
+          const incomingStock = parseInt(columns[11]) || 0 // Column L - Hàng đang về
           const size = sku.slice(-2)
           const productCode = sku.slice(0, -3)
 
@@ -371,12 +375,17 @@ export default function Home() {
           warehouseCode: productColumns.warehouseCode,
           warehouseName: getCellValue(row, productColumns.warehouseNameIndex)
         })
-      } else if (fileType === 'stock' && i >= 5) {
-        const sku = getCellValue(row, 1)
-        if (!sku || sku === 'Ma SKU') continue
+      } else if (fileType === 'stock' && i >= 8) {
+        // Sheet mới "Báo cáo tồn kho chi tiết"
+        // Skip rows 1-8 (header), skip row 9 (Tổng)
+        const stt = getCellValue(row, 1) // Column B - STT
+        if (stt === 'Tổng' || stt === 'Tong' || !stt) continue
+        
+        const sku = getCellValue(row, 4) // Column E - SKU
+        if (!sku) continue
 
-        const currentStock = parseInt(getCellValue(row, 4)) || 0
-        const incomingStock = parseFloat(getCellValue(row, 7).replace(',', '.')) || 0
+        const currentStock = parseInt(getCellValue(row, 8)) || 0   // Column I - Tồn kho
+        const incomingStock = parseInt(getCellValue(row, 11)) || 0 // Column L - Hàng đang về
         const size = sku.slice(-2)
         const productCode = sku.slice(0, -3)
 
@@ -499,7 +508,7 @@ export default function Home() {
       if (!stockReport) return
 
       const size = parseInt(product.size)
-      const sellRate = totalExport / 30
+      const sellRate = totalExport / 40 // Đổi từ 30 sang 40 ngày
       let needImport = 0
       let newMinStock = product.minStock
       let explanation = ''
@@ -543,12 +552,12 @@ export default function Home() {
           ].join('\n')
         }
         // Trường hợp 2: Bán nhanh (sellRate >= 0.4)
-        else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
-          const totalIdealStock = 24 + 10 * sellRate
+        else if (sellRate >= 0.4 && stockReport.currentStock < (15 + 12 * sellRate)) {
+          const totalIdealStock = 24 + 12 * sellRate // Đổi từ 10 sang 12 (thời gian về hàng)
           const percentage = 0.2058
           const MAX_EDGE_SIZE = 4 // Giới hạn tối đa cho size biên (40, 44, 45)
 
-          // Bước 1: Tính minStock theo công thức cũ
+          // Bước 1: Tính minStock theo công thức
           let baseStock = Math.round(totalIdealStock * percentage)
           let edgeStock = Math.max(0, baseStock - 2)
 
@@ -559,11 +568,20 @@ export default function Home() {
             edgeStock = MAX_EDGE_SIZE
           }
 
-          // Bước 3: Phân phối phần thừa cho size chính (41, 42, 43)
-          const redistributed = excess // Mỗi size chính nhận thêm = excess
+          // Bước 3: Phân phối phần thừa cho size chính với ưu tiên 42 > 41 > 43
+          const sizePriority: { [key: string]: number } = {
+            '42': 1.2,  // Cao nhất
+            '41': 1.0,  // Trung bình
+            '43': 0.8   // Thấp nhất
+          }
+          const redistributed = excess
 
-          if (product.size === '41' || product.size === '42' || product.size === '43') {
-            newMinStock = baseStock + redistributed
+          if (product.size === '42') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['42'])
+          } else if (product.size === '41') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['41'])
+          } else if (product.size === '43') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['43'])
           } else if (product.size === '40' || product.size === '44' || product.size === '45') {
             newMinStock = edgeStock
           }
@@ -571,8 +589,8 @@ export default function Home() {
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
           explanation = [
             'Size nam - truong hop 2: ti suat ban >= 0.4 (ban nhanh).',
-            `Ti suat ban = ${sellRate.toFixed(2)} => ton kho ly tuong = 24 + 10 * ${sellRate.toFixed(2)} = ${totalIdealStock.toFixed(2)}.`,
-            `Size ${product.size} duoc phan bo ${newMinStock} doi${excess > 0 ? ` (da ap dung gioi han toi da va phan phoi lai)` : ''}.`,
+            `Ti suat ban = ${sellRate.toFixed(2)} => ton kho ly tuong = 24 + 12 * ${sellRate.toFixed(2)} = ${totalIdealStock.toFixed(2)}.`,
+            `Size ${product.size} duoc phan bo ${newMinStock} doi (uu tien: 42>41>43)${excess > 0 ? ` (da ap dung gioi han toi da va phan phoi lai)` : ''}.`,
             `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
           ].join('\n')
         }
@@ -765,10 +783,10 @@ export default function Home() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileSpreadsheet className="h-5 w-5" />
-                Báo Cáo Tồn Kho
+                Báo Cáo Tồn Kho Chi Tiết
               </CardTitle>
               <CardDescription>
-                File chứa thông tin tồn kho hiện tại và hàng đang về (hỗ trợ .csv, .txt, .xlsx, .xls)
+                File báo cáo tồn kho chi tiết từ Sapo (hỗ trợ .csv, .txt, .xlsx, .xls)
               </CardDescription>
             </CardHeader>
             <CardContent>

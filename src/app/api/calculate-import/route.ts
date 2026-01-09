@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       if (!stockReport) return
 
       const size = parseInt(product.size)
-      const sellRate = totalExport / 30
+      const sellRate = totalExport / 40 // Đổi từ 30 sang 40 ngày
       let needImport = 0
       let newMinStock = product.minStock
 
@@ -115,12 +115,12 @@ export async function POST(request: NextRequest) {
           needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
         }
         // Trường hợp 2: Bán nhanh (sellRate >= 0.4)
-        else if (sellRate >= 0.4 && stockReport.currentStock < (12 + 10 * sellRate)) {
-          const totalIdealStock = 24 + 10 * sellRate
+        else if (sellRate >= 0.4 && stockReport.currentStock < (15 + 12 * sellRate)) {
+          const totalIdealStock = 24 + 12 * sellRate // Đổi từ 10 sang 12 (thời gian về hàng)
           const percentage = 0.2058
           const MAX_EDGE_SIZE = 4 // Giới hạn tối đa cho size biên (40, 44, 45)
 
-          // Bước 1: Tính minStock theo công thức cũ
+          // Bước 1: Tính minStock theo công thức
           let baseStock = Math.round(totalIdealStock * percentage)
           let edgeStock = Math.max(0, baseStock - 2)
 
@@ -131,12 +131,20 @@ export async function POST(request: NextRequest) {
             edgeStock = MAX_EDGE_SIZE
           }
 
-          // Bước 3: Phân phối phần thừa cho size chính (41, 42, 43)
-          // Tổng thừa = excess * 3 (từ 3 size biên), chia đều cho 3 size chính
-          const redistributed = excess // Mỗi size chính nhận thêm = excess
+          // Bước 3: Phân phối phần thừa cho size chính với ưu tiên 42 > 41 > 43
+          const sizePriority: { [key: string]: number } = {
+            '42': 1.2,  // Cao nhất
+            '41': 1.0,  // Trung bình
+            '43': 0.8   // Thấp nhất
+          }
+          const redistributed = excess
 
-          if (product.size === '41' || product.size === '42' || product.size === '43') {
-            newMinStock = baseStock + redistributed
+          if (product.size === '42') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['42'])
+          } else if (product.size === '41') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['41'])
+          } else if (product.size === '43') {
+            newMinStock = Math.round((baseStock + redistributed) * sizePriority['43'])
           } else if (product.size === '40' || product.size === '44' || product.size === '45') {
             newMinStock = edgeStock
           }
