@@ -508,7 +508,7 @@ export default function Home() {
       if (!stockReport) return
 
       const size = parseInt(product.size)
-      const sellRate = totalExport / 40 // Đổi từ 30 sang 40 ngày
+      const sellRate = totalExport / 30 // Đổi từ 40 về 30 ngày
       let needImport = 0
       let newMinStock = product.minStock
       let explanation = ''
