@@ -470,164 +470,32 @@ export default function TestPage() {
     }
   }
 
-  const calculateImportNeeds = () => {
+  const calculateImportNeeds = async () => {
     if (products.length === 0 || stockReports.length === 0 || stockLedgers.length === 0) {
       alert('Vui long tai len ca 3 file du lieu')
       return
     }
 
     setIsProcessing(true)
-    const results: ImportCalculation[] = []
-
-    // Gộp dữ liệu từ stockLedgers theo productCode (cho size nam)
-    const ledgerMap = new Map<string, number>()
-    // Tạo thêm map theo SKU riêng lẻ (cho size nữ - Option A)
-    const skuLedgerMap = new Map<string, number>()
-    
-    stockLedgers.forEach(ledger => {
-      // Map theo productCode (tổng xuất của cả mã sản phẩm)
-      const key = ledger.productCode || (ledger.sku.length > 3 ? ledger.sku.slice(0, -3) : ledger.sku)
-      if (key) {
-        const current = ledgerMap.get(key) || 0
-        ledgerMap.set(key, current + ledger.exportQuantity)
-      }
-      
-      // Map theo SKU riêng lẻ (xuất của từng size)
-      if (ledger.sku) {
-        const skuCurrent = skuLedgerMap.get(ledger.sku) || 0
-        skuLedgerMap.set(ledger.sku, skuCurrent + ledger.exportQuantity)
-      }
-    })
-
-    products.forEach(product => {
-      if (product.minStock <= 0) return // Điều kiện 2.1: Tồn kho tối thiểu > 0
-
-      const stockReport = stockReports.find(sr => sr.sku === product.sku)
-      const totalExport = ledgerMap.get(product.productCode) || 0
-
-      if (!stockReport) return
-
-      const size = parseInt(product.size)
-      const sellRate = totalExport / 30 // Đổi từ 40 về 30 ngày
-      let needImport = 0
-      let newMinStock = product.minStock
-      let explanation = ''
-
-      // Điều kiện 2.2 - Size nữ (36-39)
-      if (size >= 36 && size <= 39) {
-        // Lấy số lượng xuất kho của SKU cụ thể này (từng size riêng)
-        const skuExport = skuLedgerMap.get(product.sku) || 0
-        const skuSellRate = skuExport / 30
-        
-        // Bán nhanh (sellRate >= 0.27 tức >= 8 đôi/tháng): dùng số xuất kho, max 8 đôi
-        if (skuSellRate >= 0.27) {
-          newMinStock = Math.min(skuExport, 8)
-          needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
-          explanation = [
-            'Size nu (36-39) - BAN NHANH: ap dung so luong xuat kho.',
-            `Xuat kho thang: ${skuExport} doi => Ton kho toi thieu = ${newMinStock} doi (max 8).`,
-            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-          ].join('\n')
-        }
-        // Bán chậm: giữ nguyên logic cũ (1 đôi mẫu nếu không bán)
-        else {
-          if (skuExport === 0) {
-            newMinStock = 1  // Giữ hàng mẫu
-          } else {
-            newMinStock = Math.min(skuExport, 8)
-          }
-          needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
-          explanation = [
-            'Size nu (36-39) - BAN CHAM: giu hang mau.',
-            `Xuat kho thang: ${skuExport} doi => Ton kho toi thieu = ${newMinStock} doi.`,
-            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-          ].join('\n')
-        }
-      }
-      // Điều kiện 2.3 - Size nam (40-45)
-      else if (size >= 40 && size <= 45) {
-        // Trường hợp 1: Bán chậm (sellRate < 0.4) VÀ tồn kho < 13
-        // Điều kiện currentStock < 13 để tránh nhập quá nhiều (giảm từ không giới hạn)
-        if (sellRate < 0.4 && stockReport.currentStock < 13) {
-          // Mức tồn tối thiểu MỚI: ưu tiên size 41,42,43
-          const sizeMinStocks: { [key: string]: number } = {
-            '40': 3, '41': 5, '42': 5, '43': 5, '44': 3, '45': 2
-          }
-          newMinStock = sizeMinStocks[product.size] || product.minStock
-          needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
-          explanation = [
-            'Size nam - truong hop 1: ti suat ban < 0.4 (ban cham).',
-            `Ton kho toi thieu moi size ${product.size} = ${newMinStock}.`,
-            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-          ].join('\n')
-        }
-        // Trường hợp 2: Bán nhanh (sellRate >= 0.4) - Tồn kho TT = số xuất kho trong 30 ngày
-        else if (sellRate >= 0.4) {
-          // Lấy số lượng xuất kho của SKU cụ thể này
-          const skuExport = skuLedgerMap.get(product.sku) || 0
-          newMinStock = skuExport  // Tồn kho TT = số xuất kho 30 ngày (không giới hạn)
-          needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
-          explanation = [
-            'Size nam - BAN NHANH: ton kho TT = so xuat kho 30 ngay.',
-            `Xuat kho thang (SKU): ${skuExport} doi => Ton kho toi thieu = ${newMinStock} doi.`,
-            `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-          ].join('\n')
-        }
-      }
-
-      if (needImport > 0) {
-        results.push({
-          sku: product.sku,
-          productCode: product.productCode,
-          size: product.size,
-          currentStock: stockReport.currentStock,
-          incomingStock: stockReport.incomingStock,
-          minStock: newMinStock,
-          exportQuantity: totalExport,
-          sellRate,
-          needImport,
-          image: product.image,
-          importPrice: product.importPrice,
-          costPriceVnd: product.costPriceVnd,
-          explanation: explanation || `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-        })
-      }
-    })
-
-    // Gộp kết quả theo mã sản phẩm và kiểm tra ngưỡng theo giới tính
-    const productGroupMap = new Map<string, ImportCalculation[]>()
-    results.forEach(result => {
-      const group = productGroupMap.get(result.productCode) || []
-      group.push(result)
-      productGroupMap.set(result.productCode, group)
-    })
-
-    const finalResults: ImportCalculation[] = []
-    productGroupMap.forEach((group, productCode) => {
-      const totalNeedImport = group.reduce((sum, item) => sum + item.needImport, 0)
-
-      // Xác định ngưỡng theo giới tính dựa vào size
-      // Unisex = có CẢ size nữ (36-39) VÀ size nam (40-45) => ngưỡng 12
-      // Nữ thuần = chỉ có size 36-39 => ngưỡng 8
-      // Nam thuần = chỉ có size 40-45 => ngưỡng 12
-      const hasFemaleSize = group.some(item => {
-        const size = parseInt(item.size)
-        return size >= 36 && size <= 39
+    try {
+      const response = await fetch('/api/test/calculate-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products, stockReports, stockLedgers })
       })
-      const hasMaleSize = group.some(item => {
-        const size = parseInt(item.size)
-        return size >= 40 && size <= 45
-      })
-      const isUnisex = hasFemaleSize && hasMaleSize
-      const threshold = (isUnisex || !hasFemaleSize) ? 12 : 8
 
-      if (totalNeedImport > threshold) {
-        finalResults.push(...group)
+      const payload = await response.json()
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Khong the tinh toan du lieu')
       }
-    })
 
-    setCalculations(finalResults)
-    setIsProcessing(false)
+      setCalculations(payload.data || [])
+    } catch (error) {
+      console.error('Loi khi tinh toan nhap hang:', error)
+      alert('Khong the tinh toan du lieu. Vui long thu lai.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const exportToExcel = () => {
@@ -833,9 +701,10 @@ export default function TestPage() {
                   <strong>Điều kiện tính toán:</strong>
                   <ul className="list-disc list-inside mt-2 space-y-1">
                     <li>Tồn kho tối thiểu &gt; 0</li>
-                    <li>Size nữ (36-39): Bán nhanh = MIN(số xuất kho 30 ngày, 8), Bán chậm = giữ hàng mẫu</li>
-                    <li>Size nam (40-45): Bán nhanh = số xuất kho 30 ngày, Bán chậm = công thức cũ</li>
-                    <li>Tổng số lượng cần nhập của 1 mã sản phẩm phải &gt; 12</li>
+                    <li>Size nữ (36-39): giữ nguyên logic hiện tại</li>
+                    <li>Size nam bán chậm (40-45): chỉ nhập khi sell rate &lt; 0.4, có ít nhất 1 size = 0, tổng tồn nam &lt; 12 và tổng thiếu hụt theo định mức nam &gt;= 12</li>
+                    <li>Khi đủ điều kiện bán chậm: chia tối đa 12 đôi theo thứ tự 42→41→43→40→44→45</li>
+                    <li>Ngưỡng lọc theo mã sản phẩm nam/unisex: tổng cần nhập &gt;= 12</li>
                   </ul>
                 </AlertDescription>
               </Alert>

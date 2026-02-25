@@ -66,6 +66,12 @@ const CONFIG = {
   SIZE_MIN_STOCKS_SLOW: {
     '40': 3, '41': 5, '42': 5, '43': 5, '44': 3, '45': 2
   } as Record<string, number>,
+
+  // Tổng nhập tối đa cho mẫu nam bán chậm
+  SLOW_MALE_TOTAL_IMPORT_TARGET: 12,
+
+  // Thứ tự ưu tiên chia size cho mẫu nam bán chậm
+  SLOW_MALE_PRIORITY_ORDER: ['42', '41', '43', '40', '44', '45'] as string[],
   
   // Hệ số ưu tiên size
   SIZE_PRIORITY: {
@@ -79,6 +85,97 @@ const CONFIG = {
   THRESHOLD_FEMALE: 8,
 }
 
+type MaleSlowCandidate = {
+  product: Product
+  stockReport: StockReport
+  sellRate: number
+  totalExport: number
+  sizeTargetMinStock: number
+  remainingCapacity: number
+}
+
+function isFemaleSize(size: number): boolean {
+  return size >= 36 && size <= 39
+}
+
+function isMaleSize(size: number): boolean {
+  return size >= 40 && size <= 45
+}
+
+function isMaleSlowSell(sellRate: number): boolean {
+  return sellRate < CONFIG.SELL_RATE_THRESHOLD
+}
+
+function getMaleSlowTargetBySize(size: string, fallback: number): number {
+  return CONFIG.SIZE_MIN_STOCKS_SLOW[size] || fallback
+}
+
+function calculateMaleSlowActivation(candidates: MaleSlowCandidate[]): {
+  hasZeroSize: boolean
+  totalMaleStock: number
+  totalMissingCapacity: number
+  canActivate: boolean
+} {
+  const hasZeroSize = candidates.some(item => item.stockReport.currentStock === 0)
+  const totalMaleStock = candidates.reduce(
+    (sum, item) => sum + item.stockReport.currentStock + item.stockReport.incomingStock,
+    0
+  )
+  const totalMissingCapacity = candidates.reduce((sum, item) => sum + item.remainingCapacity, 0)
+
+  const canActivate =
+    hasZeroSize &&
+    totalMaleStock < CONFIG.SLOW_MALE_TOTAL_IMPORT_TARGET &&
+    totalMissingCapacity >= CONFIG.SLOW_MALE_TOTAL_IMPORT_TARGET
+
+  return { hasZeroSize, totalMaleStock, totalMissingCapacity, canActivate }
+}
+
+function allocateMaleSlowNeeds(candidates: MaleSlowCandidate[]): Map<string, number> {
+  const allocations = new Map<string, number>()
+  const remainingBySku = new Map<string, number>()
+  candidates.forEach(item => {
+    allocations.set(item.product.sku, 0)
+    remainingBySku.set(item.product.sku, item.remainingCapacity)
+  })
+
+  let budget = CONFIG.SLOW_MALE_TOTAL_IMPORT_TARGET
+
+  while (budget > 0) {
+    let allocatedInRound = false
+
+    for (const size of CONFIG.SLOW_MALE_PRIORITY_ORDER) {
+      if (budget <= 0) break
+
+      let selected: MaleSlowCandidate | undefined
+      for (const item of candidates) {
+        if (item.product.size !== size) continue
+        const remaining = remainingBySku.get(item.product.sku) || 0
+        if (remaining <= 0) continue
+
+        if (!selected) {
+          selected = item
+        } else {
+          const selectedRemaining = remainingBySku.get(selected.product.sku) || 0
+          if (remaining > selectedRemaining) selected = item
+        }
+      }
+
+      if (!selected) continue
+
+      const sku = selected.product.sku
+      allocations.set(sku, (allocations.get(sku) || 0) + 1)
+      remainingBySku.set(sku, (remainingBySku.get(sku) || 0) - 1)
+      budget -= 1
+      allocatedInRound = true
+    }
+
+    if (!allocatedInRound) break
+  }
+
+  return allocations
+}
+
 export function calculateImportNeeds(input: CalculateImportInput): ImportCalculation[] {
   const { products, stockReports, stockLedgers } = input
   const results: ImportCalculation[] = []
@@ -87,14 +184,15 @@ export function calculateImportNeeds(input: CalculateImportInput): ImportCalcula
   const ledgerMap = new Map<string, number>()
   // Tạo thêm map theo SKU riêng lẻ (cho size nữ)
   const skuLedgerMap = new Map<string, number>()
-  
+  const maleSlowCandidatesByProductCode = new Map<string, MaleSlowCandidate[]>()
+
   stockLedgers.forEach(ledger => {
     const key = ledger.productCode || (ledger.sku.length > 3 ? ledger.sku.slice(0, -3) : ledger.sku)
     if (key) {
       const current = ledgerMap.get(key) || 0
       ledgerMap.set(key, current + ledger.exportQuantity)
     }
-    
+
     if (ledger.sku) {
       const skuCurrent = skuLedgerMap.get(ledger.sku) || 0
       skuLedgerMap.set(ledger.sku, skuCurrent + ledger.exportQuantity)
@@ -102,55 +200,111 @@ export function calculateImportNeeds(input: CalculateImportInput): ImportCalcula
   })
 
   products.forEach(product => {
-    // Điều kiện 2.1: Tồn kho tối thiểu > 0
     if (product.minStock <= 0) return
 
     const stockReport = stockReports.find(sr => sr.sku === product.sku)
-    const totalExport = ledgerMap.get(product.productCode) || 0
-
     if (!stockReport) return
 
+    const totalExport = ledgerMap.get(product.productCode) || 0
     const size = parseInt(product.size)
     const sellRate = totalExport / CONFIG.DAYS_FOR_SELL_RATE
-    let needImport = 0
-    let newMinStock = product.minStock
-    let explanation = ''
 
-    // Điều kiện 2.2 - Size nữ (36-39)
-    if (size >= 36 && size <= 39) {
+    if (isFemaleSize(size)) {
       const result = calculateFemaleSize(product, stockReport, skuLedgerMap)
-      needImport = result.needImport
-      newMinStock = result.newMinStock
-      explanation = result.explanation
-    }
-    // Điều kiện 2.3 - Size nam (40-45)
-    else if (size >= 40 && size <= 45) {
-      const result = calculateMaleSize(product, stockReport, sellRate, totalExport)
-      needImport = result.needImport
-      newMinStock = result.newMinStock
-      explanation = result.explanation
+      if (result.needImport > 0) {
+        results.push({
+          sku: product.sku,
+          productCode: product.productCode,
+          size: product.size,
+          currentStock: stockReport.currentStock,
+          incomingStock: stockReport.incomingStock,
+          minStock: result.newMinStock,
+          exportQuantity: totalExport,
+          sellRate,
+          needImport: result.needImport,
+          image: product.image,
+          importPrice: product.importPrice,
+          costPriceVnd: product.costPriceVnd,
+          explanation: result.explanation
+        })
+      }
+      return
     }
 
-    if (needImport > 0) {
+    if (!isMaleSize(size)) return
+
+    if (isMaleSlowSell(sellRate)) {
+      const targetMinStock = getMaleSlowTargetBySize(product.size, product.minStock)
+      const remainingCapacity = Math.max(0, targetMinStock - stockReport.currentStock - stockReport.incomingStock)
+      const group = maleSlowCandidatesByProductCode.get(product.productCode) || []
+      group.push({
+        product,
+        stockReport,
+        sellRate,
+        totalExport,
+        sizeTargetMinStock: targetMinStock,
+        remainingCapacity
+      })
+      maleSlowCandidatesByProductCode.set(product.productCode, group)
+      return
+    }
+
+    const result = calculateMaleSizeFast(product, stockReport, sellRate)
+    if (result.needImport > 0) {
       results.push({
         sku: product.sku,
         productCode: product.productCode,
         size: product.size,
         currentStock: stockReport.currentStock,
         incomingStock: stockReport.incomingStock,
-        minStock: newMinStock,
+        minStock: result.newMinStock,
         exportQuantity: totalExport,
         sellRate,
-        needImport,
+        needImport: result.needImport,
         image: product.image,
         importPrice: product.importPrice,
         costPriceVnd: product.costPriceVnd,
-        explanation: explanation || `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
+        explanation: result.explanation
       })
     }
   })
 
-  // Lọc theo ngưỡng
+  maleSlowCandidatesByProductCode.forEach(candidates => {
+    const activation = calculateMaleSlowActivation(candidates)
+    if (!activation.canActivate) return
+
+    const allocations = allocateMaleSlowNeeds(candidates)
+    candidates.forEach(item => {
+      const allocated = allocations.get(item.product.sku) || 0
+      if (allocated <= 0) return
+
+      const newMinStock = item.stockReport.currentStock + item.stockReport.incomingStock + allocated
+      const explanation = [
+        'Size nam - truong hop ban cham: chia nhap theo nhom.',
+        `Dieu kien kich hoat: co size = 0 (${activation.hasZeroSize ? 'co' : 'khong'}), tong ton nam = ${activation.totalMaleStock} (< ${CONFIG.SLOW_MALE_TOTAL_IMPORT_TARGET}), tong thieu hut = ${activation.totalMissingCapacity} (>= ${CONFIG.SLOW_MALE_TOTAL_IMPORT_TARGET}).`,
+        `Thu tu uu tien chia: ${CONFIG.SLOW_MALE_PRIORITY_ORDER.join(' > ')}.`,
+        `Size ${item.product.size} duoc chia ${allocated} doi (muc ton size cham: ${item.sizeTargetMinStock}).`,
+        `Can nhap = ${newMinStock} - ${item.stockReport.currentStock} - ${item.stockReport.incomingStock} = ${allocated}.`
+      ].join('\n')
+
+      results.push({
+        sku: item.product.sku,
+        productCode: item.product.productCode,
+        size: item.product.size,
+        currentStock: item.stockReport.currentStock,
+        incomingStock: item.stockReport.incomingStock,
+        minStock: newMinStock,
+        exportQuantity: item.totalExport,
+        sellRate: item.sellRate,
+        needImport: allocated,
+        image: item.product.image,
+        importPrice: item.product.importPrice,
+        costPriceVnd: item.product.costPriceVnd,
+        explanation
+      })
+    })
+  })
+
   return filterByThreshold(results)
 }
 
@@ -178,28 +332,16 @@ function calculateFemaleSize(
   return { needImport, newMinStock, explanation }
 }
 
-function calculateMaleSize(
+function calculateMaleSizeFast(
   product: Product,
   stockReport: StockReport,
-  sellRate: number,
-  totalExport: number
+  sellRate: number
 ): { needImport: number; newMinStock: number; explanation: string } {
   let needImport = 0
   let newMinStock = product.minStock
   let explanation = ''
 
-  // Trường hợp 1: Bán chậm
-  if (sellRate < CONFIG.SELL_RATE_THRESHOLD && stockReport.currentStock < 13) {
-    newMinStock = CONFIG.SIZE_MIN_STOCKS_SLOW[product.size] || product.minStock
-    needImport = newMinStock - stockReport.currentStock - stockReport.incomingStock
-    explanation = [
-      'Size nam - truong hop 1: ti suat ban < 0.4 (ban cham).',
-      `Ton kho toi thieu moi size ${product.size} = ${newMinStock}.`,
-      `Can nhap = ${newMinStock} - ${stockReport.currentStock} - ${stockReport.incomingStock} = ${needImport}.`
-    ].join('\n')
-  }
-  // Trường hợp 2: Bán nhanh
-  else if (sellRate >= CONFIG.SELL_RATE_THRESHOLD && stockReport.currentStock < (15 + 12 * sellRate)) {
+  if (sellRate >= CONFIG.SELL_RATE_THRESHOLD && stockReport.currentStock < (15 + 12 * sellRate)) {
     const totalIdealStock = 24 + 12 * sellRate
     const percentage = 0.2058
 
@@ -259,7 +401,7 @@ function filterByThreshold(results: ImportCalculation[]): ImportCalculation[] {
     const isUnisex = hasFemaleSize && hasMaleSize
     const threshold = (isUnisex || !hasFemaleSize) ? CONFIG.THRESHOLD_MALE : CONFIG.THRESHOLD_FEMALE
 
-    if (totalNeedImport > threshold) {
+    if (totalNeedImport >= threshold) {
       finalResults.push(...group)
     }
   })
