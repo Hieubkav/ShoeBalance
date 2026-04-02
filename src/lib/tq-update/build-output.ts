@@ -1,4 +1,6 @@
 import ExcelJS from 'exceljs'
+import { promises as fs } from 'fs'
+import path from 'path'
 import type { SapoRow } from './types'
 
 const headerRow = [
@@ -14,7 +16,7 @@ const headerRow = [
   'Giá bán lẻ'
 ]
 
-export const buildSapoWorkbook = (rows: SapoRow[]) => {
+const createFallbackWorkbook = () => {
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('nhap_hang_sapo')
 
@@ -23,6 +25,27 @@ export const buildSapoWorkbook = (rows: SapoRow[]) => {
   }
 
   sheet.getRow(7).values = headerRow
+  return workbook
+}
+
+const loadTemplateWorkbook = async () => {
+  const templatePath = path.resolve(process.cwd(), 'public', 'nhap_hang_sapo_template.xlsx')
+  const templateBuffer = (await fs.readFile(templatePath)) as unknown as Buffer
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(templateBuffer)
+  return workbook
+}
+
+export const buildSapoWorkbook = async (rows: SapoRow[]) => {
+  let workbook: ExcelJS.Workbook
+
+  try {
+    workbook = await loadTemplateWorkbook()
+  } catch {
+    workbook = createFallbackWorkbook()
+  }
+
+  const sheet = workbook.worksheets[0] ?? workbook.addWorksheet('nhap_hang_sapo')
 
   const dataRows = rows.map(row => [
     row.sku,
@@ -37,8 +60,9 @@ export const buildSapoWorkbook = (rows: SapoRow[]) => {
     row.retailPrice
   ])
 
-  if (dataRows.length > 0) {
-    sheet.addRows(dataRows)
+  for (let index = 0; index < dataRows.length; index++) {
+    const rowIndex = 8 + index
+    sheet.getRow(rowIndex).values = dataRows[index]
   }
 
   return workbook

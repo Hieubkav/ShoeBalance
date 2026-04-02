@@ -16,12 +16,6 @@ const buildAllowedSkuSet = (reportData: ReturnType<typeof parseReportData>) => {
   return allowed
 }
 
-const toBuffer = (value: Buffer | ArrayBuffer) =>
-  Buffer.isBuffer(value) ? value : Buffer.from(value)
-
-const toArrayBuffer = (value: Buffer) =>
-  value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-
 export const processTqUpdate = async (
   sapoBuffer: Buffer,
   reportBuffer: Buffer
@@ -29,16 +23,16 @@ export const processTqUpdate = async (
   const sapoWorkbook = new ExcelJS.Workbook()
   const reportWorkbook = new ExcelJS.Workbook()
 
-  await sapoWorkbook.xlsx.load(toArrayBuffer(sapoBuffer))
-  await reportWorkbook.xlsx.load(toArrayBuffer(reportBuffer))
+  await sapoWorkbook.xlsx.load(sapoBuffer as unknown as Buffer)
+  await reportWorkbook.xlsx.load(reportBuffer as unknown as Buffer)
 
   const sapoData = parseSapoData(sapoWorkbook)
   const reportData = parseReportData(reportWorkbook)
   const allowedSkus = buildAllowedSkuSet(reportData)
 
   const filtered = sapoData.filter(item => allowedSkus.has(item.sku))
-  const outputWorkbook = buildSapoWorkbook(filtered)
-  const outputBuffer = toBuffer(await outputWorkbook.xlsx.writeBuffer())
+  const outputWorkbook = await buildSapoWorkbook(filtered)
+  const outputBuffer = Buffer.from(await outputWorkbook.xlsx.writeBuffer())
 
   return {
     buffer: outputBuffer,
