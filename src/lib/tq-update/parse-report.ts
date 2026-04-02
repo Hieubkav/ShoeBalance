@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import type ExcelJS from 'exceljs'
 import type { ReportEntry } from './types'
 
 const normalizeText = (value: string) =>
@@ -8,14 +8,24 @@ const normalizeText = (value: string) =>
     .toLowerCase()
     .trim()
 
-const getSheetRange = (sheet: XLSX.WorkSheet) => {
-  if (!sheet['!ref']) return null
-  return XLSX.utils.decode_range(sheet['!ref'])
-}
+const getCellValue = (sheet: ExcelJS.Worksheet, row: number, col: number) => {
+  const cell = sheet.getRow(row).getCell(col + 1)
+  const value = cell.value
 
-const getCellValue = (sheet: XLSX.WorkSheet, row: number, col: number) => {
-  const cell = sheet[XLSX.utils.encode_cell({ r: row - 1, c: col })]
-  return cell?.v ?? ''
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string' || typeof value === 'number') return value
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'object') {
+    if ('text' in value && typeof value.text === 'string') return value.text
+    if ('richText' in value && Array.isArray(value.richText)) {
+      return value.richText.map(item => item.text).join('')
+    }
+    if ('result' in value) return value.result ?? ''
+    if ('formula' in value) return value.result ?? value.formula ?? ''
+    if ('hyperlink' in value && typeof value.text === 'string') return value.text
+  }
+
+  return ''
 }
 
 const parseNumber = (value: unknown) => {
@@ -26,10 +36,8 @@ const parseNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-const isWarehouseFormat = (sheet: XLSX.WorkSheet) => {
-  const range = getSheetRange(sheet)
-  if (!range) return false
-  const maxRows = Math.min(10, range.e.r + 1)
+const isWarehouseFormat = (sheet: ExcelJS.Worksheet) => {
+  const maxRows = Math.min(10, sheet.rowCount || 0)
 
   for (let row = 1; row <= maxRows; row++) {
     const colL = normalizeText(String(getCellValue(sheet, row, 11)))
@@ -42,33 +50,31 @@ const isWarehouseFormat = (sheet: XLSX.WorkSheet) => {
   return false
 }
 
-const findTargetSheet = (workbook: XLSX.WorkBook) => {
-  const names = workbook.SheetNames
+const findTargetSheet = (workbook: ExcelJS.Workbook) => {
+  const names = workbook.worksheets.map(sheet => sheet.name)
 
   for (const name of names) {
     const normalized = normalizeText(name)
     if (normalized.includes('file gui kho') || normalized.includes('kho trung quoc')) {
-      return workbook.Sheets[name]
+      return workbook.getWorksheet(name)
     }
   }
 
   for (const name of names) {
     const normalized = normalizeText(name)
     if (normalized.includes('bao cao')) {
-      return workbook.Sheets[name]
+      return workbook.getWorksheet(name)
     }
   }
 
-  return workbook.Sheets[names[0]]
+  return workbook.worksheets[0]
 }
 
-export const parseReportData = (workbook: XLSX.WorkBook): ReportEntry[] => {
+export const parseReportData = (workbook: ExcelJS.Workbook): ReportEntry[] => {
   const sheet = findTargetSheet(workbook)
   if (!sheet) return []
 
-  const range = getSheetRange(sheet)
-  if (!range) return []
-  const maxRows = range.e.r + 1
+  const maxRows = sheet.rowCount || 0
   const reportData: ReportEntry[] = []
   const warehouseFormat = isWarehouseFormat(sheet)
 

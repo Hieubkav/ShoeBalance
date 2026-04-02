@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { buildSapoWorkbook } from './build-output'
 import { parseReportData } from './parse-report'
 import { parseSapoData } from './parse-sapo'
@@ -16,9 +16,21 @@ const buildAllowedSkuSet = (reportData: ReturnType<typeof parseReportData>) => {
   return allowed
 }
 
-export const processTqUpdate = (sapoBuffer: Buffer, reportBuffer: Buffer): TqUpdateResult => {
-  const sapoWorkbook = XLSX.read(sapoBuffer, { type: 'buffer' })
-  const reportWorkbook = XLSX.read(reportBuffer, { type: 'buffer' })
+const toBuffer = (value: Buffer | ArrayBuffer) =>
+  Buffer.isBuffer(value) ? value : Buffer.from(value)
+
+const toArrayBuffer = (value: Buffer) =>
+  value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
+
+export const processTqUpdate = async (
+  sapoBuffer: Buffer,
+  reportBuffer: Buffer
+): Promise<TqUpdateResult> => {
+  const sapoWorkbook = new ExcelJS.Workbook()
+  const reportWorkbook = new ExcelJS.Workbook()
+
+  await sapoWorkbook.xlsx.load(toArrayBuffer(sapoBuffer))
+  await reportWorkbook.xlsx.load(toArrayBuffer(reportBuffer))
 
   const sapoData = parseSapoData(sapoWorkbook)
   const reportData = parseReportData(reportWorkbook)
@@ -26,10 +38,10 @@ export const processTqUpdate = (sapoBuffer: Buffer, reportBuffer: Buffer): TqUpd
 
   const filtered = sapoData.filter(item => allowedSkus.has(item.sku))
   const outputWorkbook = buildSapoWorkbook(filtered)
-  const outputBuffer = XLSX.write(outputWorkbook, { bookType: 'xlsx', type: 'buffer' })
+  const outputBuffer = toBuffer(await outputWorkbook.xlsx.writeBuffer())
 
   return {
-    buffer: Buffer.from(outputBuffer),
+    buffer: outputBuffer,
     filename: `nhap_hang_sapo_${new Date().toISOString().slice(0, 10)}.xlsx`,
     totalRows: filtered.length
   }

@@ -1,11 +1,23 @@
-import * as XLSX from 'xlsx'
+import type ExcelJS from 'exceljs'
 import type { SapoRow } from './types'
 
-const getCellValue = (row: unknown[], index: number) => {
-  if (!Array.isArray(row)) return ''
-  const value = row[index]
+const getCellValue = (row: ExcelJS.Row, index: number) => {
+  const cell = row.getCell(index + 1)
+  const value = cell.value
   if (value === null || value === undefined) return ''
-  return typeof value === 'number' ? value : String(value).trim()
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') return value.trim()
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === 'object') {
+    if ('text' in value && typeof value.text === 'string') return value.text.trim()
+    if ('richText' in value && Array.isArray(value.richText)) {
+      return value.richText.map(item => item.text).join('').trim()
+    }
+    if ('result' in value) return value.result ?? ''
+    if ('formula' in value) return value.result ?? value.formula ?? ''
+    if ('hyperlink' in value && typeof value.text === 'string') return value.text.trim()
+  }
+  return ''
 }
 
 const parseNumber = (value: unknown) => {
@@ -16,15 +28,15 @@ const parseNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : normalized
 }
 
-export const parseSapoData = (workbook: XLSX.WorkBook): SapoRow[] => {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+export const parseSapoData = (workbook: ExcelJS.Workbook): SapoRow[] => {
+  const sheet = workbook.worksheets[0]
   if (!sheet) return []
 
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
   const sapoData: SapoRow[] = []
+  const maxRows = sheet.rowCount || 0
 
-  for (let i = 7; i < rows.length; i++) {
-    const row = rows[i] as unknown[]
+  for (let i = 8; i <= maxRows; i++) {
+    const row = sheet.getRow(i)
     const skuValue = String(getCellValue(row, 0)).trim()
     if (!skuValue) break
 

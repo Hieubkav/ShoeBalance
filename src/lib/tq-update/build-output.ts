@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import type { SapoRow } from './types'
 
 const headerRow = [
@@ -15,7 +15,14 @@ const headerRow = [
 ]
 
 export const buildSapoWorkbook = (rows: SapoRow[]) => {
-  const sheet = XLSX.utils.aoa_to_sheet([[], [], [], [], [], [], headerRow])
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('nhap_hang_sapo')
+
+  for (let i = 1; i <= 6; i++) {
+    sheet.getRow(i).values = []
+  }
+
+  sheet.getRow(7).values = headerRow
 
   const dataRows = rows.map(row => [
     row.sku,
@@ -31,10 +38,8 @@ export const buildSapoWorkbook = (rows: SapoRow[]) => {
   ])
 
   if (dataRows.length > 0) {
-    XLSX.utils.sheet_add_aoa(sheet, dataRows, { origin: 'A8' })
+    sheet.addRows(dataRows)
   }
 
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, sheet, 'nhap_hang_sapo')
   return workbook
 }

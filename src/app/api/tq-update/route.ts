@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     const sapoBuffer = Buffer.from(await sapoFile.arrayBuffer())
     const reportBuffer = Buffer.from(await reportFile.arrayBuffer())
-    const result = processTqUpdate(sapoBuffer, reportBuffer)
+    const result = await processTqUpdate(sapoBuffer, reportBuffer)
 
     const body = new Uint8Array(result.buffer)
 
