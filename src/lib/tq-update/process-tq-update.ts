@@ -23,8 +23,8 @@ export const processTqUpdate = async (
   const sapoWorkbook = new ExcelJS.Workbook()
   const reportWorkbook = new ExcelJS.Workbook()
 
-  await sapoWorkbook.xlsx.load(sapoBuffer as unknown as Buffer)
-  await reportWorkbook.xlsx.load(reportBuffer as unknown as Buffer)
+  await sapoWorkbook.xlsx.load(sapoBuffer as unknown as any)
+  await reportWorkbook.xlsx.load(reportBuffer as unknown as any)
 
   const sapoData = parseSapoData(sapoWorkbook)
   const reportData = parseReportData(reportWorkbook)

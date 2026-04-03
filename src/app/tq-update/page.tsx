@@ -1,5 +1,6 @@
 'use client'
 
+import { upload } from '@vercel/blob/client'
 import { useState, type ChangeEvent } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ export default function TqUpdatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const useBlobUpload = process.env.NEXT_PUBLIC_VERCEL_ENV === 'production'
 
   const handleFileChange =
     (setter: (file: File | null) => void) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -37,14 +39,38 @@ export default function TqUpdatePage() {
 
     setIsSubmitting(true)
     try {
-      const formData = new FormData()
-      formData.append('sapo_file', sapoFile)
-      formData.append('report_file', reportFile)
+      let response: Response
 
-      const response = await fetch('/api/tq-update', {
-        method: 'POST',
-        body: formData
-      })
+      if (useBlobUpload) {
+        const sapoBlob = await upload(sapoFile.name, sapoFile, {
+          access: 'public',
+          handleUploadUrl: '/api/tq-update/upload'
+        })
+        const reportBlob = await upload(reportFile.name, reportFile, {
+          access: 'public',
+          handleUploadUrl: '/api/tq-update/upload'
+        })
+
+        response = await fetch('/api/tq-update', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sapoUrl: sapoBlob.url,
+            reportUrl: reportBlob.url
+          })
+        })
+      } else {
+        const formData = new FormData()
+        formData.append('sapo_file', sapoFile)
+        formData.append('report_file', reportFile)
+
+        response = await fetch('/api/tq-update', {
+          method: 'POST',
+          body: formData
+        })
+      }
 
       if (!response.ok) {
         const payload = await response.json().catch(() => null)

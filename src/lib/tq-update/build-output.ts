@@ -30,9 +30,9 @@ const createFallbackWorkbook = () => {
 
 const loadTemplateWorkbook = async () => {
   const templatePath = path.resolve(process.cwd(), 'public', 'nhap_hang_sapo_template.xlsx')
-  const templateBuffer = (await fs.readFile(templatePath)) as unknown as Buffer
+  const templateBuffer = await fs.readFile(templatePath)
   const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(templateBuffer)
+  await workbook.xlsx.load(templateBuffer as unknown as any)
   return workbook
 }
 
